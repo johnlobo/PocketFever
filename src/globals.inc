@@ -63,6 +63,28 @@
 .globl sys_messages_show
 .globl sys_messages_close
 
+;; sys/array.s
+.globl sys_array_init
+.globl sys_array_create_element
+.globl sys_array_create_reusable_element
+.globl sys_array_get_element
+.globl sys_array_remove_element
+.globl sys_array_get_random_element
+.globl sys_array_get_address_from_pointer
+.globl sys_array_move_all_elements
+.globl sys_array_execute_each
+.globl sys_array_execute_each_ix_matching
+.globl sys_array_execute_each_iy_matching
+
+;; sys/entity.s
+.globl entities
+.globl sys_entity_init
+.globl sys_entity_create
+.globl sys_entity_draw_all
+
+;; game/table.s
+.globl game_table_init
+
 ;; sys/text.s
 .globl aux_txt
 .globl sys_text_init

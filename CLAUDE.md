@@ -12,9 +12,9 @@ make cleanall
 
 `CPCT_PATH` required. Load at `0x4000`.
 
-**Version bump + deploy (do this unprompted after every significant change):**
-- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.002`).
-- Run `./code-server-compile.sh` — `make recode` and copy `PocketFever.dsk` to `../../www/gamez`.
+**Version bump + deploy + commit (do this unprompted after every significant change):**
+- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.003`).
+- Run `./code-server-compile.sh` — `make recode` and copy `PocketFever.dsk` to `../../www/gamez`. Always deploy before commit+push so the playable DSK is what gets tested.
 - `git commit` and `git push`. Do not wait to be asked.
 
 ## Frozen layout
@@ -26,7 +26,7 @@ make cleanall
 
 Follows DeckTower/model01: `src/sys/` reusable, `src/game/` not yet. `sys` must not reference `game`.
 
-Copied from DeckTower (trimmed): `system` (6-int chain, keyboard scan on int 2; no sound), `input`, `text`, `messages`. Also `render` and `util` because text/messages need them. Font + small_numbers assets from DeckTower.
+Copied from DeckTower (trimmed): `system`, `input`, `text`, `messages`, `array`. Also `render` and `util` because text/messages need them. `sys/entity` is PocketFever's ball pool (10 slots). `game/table` paints the felt and seeds the 9-ball rack.
 
 ## Commands
 

@@ -7,8 +7,12 @@ TABLE_X_BYTES   = 0
 TABLE_Y_PX      = 0
 HUD_Y_PX        = 132
 HUD_HEIGHT_PX   = 68
-BALL_WIDTH_PX   = 4
-BALL_HEIGHT_PX  = 6
+BALL_WIDTH_PX    = 4
+BALL_HEIGHT_PX   = 6
+BALL_WIDTH_BYTES = 2
+MAX_ENTITIES     = 10
+FELT_PEN         = 10
+FELT_WIDTH_BYTES = 80
 
 ;; sys/text.s small-digit HUD font. Width in BYTES.
 S_SMALL_NUMBERS_WIDTH  = 2
