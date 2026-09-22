@@ -1,11 +1,11 @@
 ;; Project-level parameters consumed by reusable systems.
 
-;; Felt 160x132 (2:1 on CRT 4:3). HUD 68 px below. Balls 4x6.
+;; Felt 160x132 (2:1 on CRT 4:3), bottom-aligned. HUD 68 px above. Balls 4x6.
 TABLE_WIDTH_PX  = 160
 TABLE_HEIGHT_PX = 132
 TABLE_X_BYTES   = 0
-TABLE_Y_PX      = 0
-HUD_Y_PX        = 132
+TABLE_Y_PX      = 68
+HUD_Y_PX        = 0
 HUD_HEIGHT_PX   = 68
 BALL_WIDTH_PX    = 4
 BALL_HEIGHT_PX   = 6

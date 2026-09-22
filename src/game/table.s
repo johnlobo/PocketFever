@@ -7,21 +7,21 @@
 
 .area _DATA
 
-;; Cue at kitchen (x=36). Diamond rack, apex toward the cue, 9 in the centre.
-ball_cue: DefineBall 0, 36, 63, 15
-ball_1:   DefineBall 1, 108, 63, 8
-ball_2:   DefineBall 2, 112, 57, 2
-ball_3:   DefineBall 3, 112, 69, 4
-ball_4:   DefineBall 4, 116, 51, 3
-ball_9:   DefineBall 9, 116, 63, 5
-ball_5:   DefineBall 5, 116, 75, 6
-ball_6:   DefineBall 6, 120, 57, 11
-ball_7:   DefineBall 7, 120, 69, 13
-ball_8:   DefineBall 8, 124, 63, 1
+;; Cue at right kitchen. Diamond rack on the left, apex toward the cue, 9 in the centre.
+ball_cue: DefineBall 0, 120, TABLE_Y_PX+63, 15
+ball_8:   DefineBall 8,  32, TABLE_Y_PX+63, 1
+ball_6:   DefineBall 6,  36, TABLE_Y_PX+57, 11
+ball_7:   DefineBall 7,  36, TABLE_Y_PX+69, 13
+ball_4:   DefineBall 4,  40, TABLE_Y_PX+51, 3
+ball_9:   DefineBall 9,  40, TABLE_Y_PX+63, 5
+ball_5:   DefineBall 5,  40, TABLE_Y_PX+75, 6
+ball_2:   DefineBall 2,  44, TABLE_Y_PX+57, 2
+ball_3:   DefineBall 3,  44, TABLE_Y_PX+69, 4
+ball_1:   DefineBall 1,  48, TABLE_Y_PX+63, 8
 
 ball_templates:
     .dw ball_cue, ball_1, ball_2, ball_3, ball_4
-    .dw ball_9, ball_5, ball_6, ball_7, ball_8
+    .dw ball_5, ball_6, ball_7, ball_8, ball_9
 
 .area _CODE
 

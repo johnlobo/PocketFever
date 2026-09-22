@@ -13,13 +13,13 @@ make cleanall
 `CPCT_PATH` required. Load at `0x4000`.
 
 **Version bump + deploy + commit (do this unprompted after every significant change):**
-- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.003`).
+- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.004`).
 - Run `./code-server-compile.sh` — `make recode` and copy `PocketFever.dsk` to `../../www/gamez`. Always deploy before commit+push so the playable DSK is what gets tested.
 - `git commit` and `git push`. Do not wait to be asked.
 
 ## Frozen layout
 
-- Felt 160×132 (looks 2:1 on CRT 4:3). HUD 68 px at Y=132.
+- Felt 160×132 (looks 2:1 on CRT 4:3), bottom-aligned (Y=68). HUD 68 px at Y=0.
 - Balls 4×6. `src/config.h.s`.
 
 ## Architecture

@@ -19,7 +19,7 @@
 
 .area _DATA
 
-_game_version_string: .asciz " POCKETFEVER V.003"
+_game_version_string: .asciz " POCKETFEVER V.004"
 
 ;; Runtime address of the 256-byte mask table. Copied here at boot so the
 ;; binary does not span 0x0100..0x4000 (hex2bin would pad ~15K).
