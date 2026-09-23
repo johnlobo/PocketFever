@@ -80,7 +80,7 @@ sys_entity_draw_all::
 ;;  Modified: AF, BC, DE, HL
 ;;
 sys_entity_blit_box:
-    ld (sebb_pattern), a
+    push af
     ld a, c
     srl a
     ld c, a
@@ -89,8 +89,7 @@ sys_entity_blit_box:
     ex de, hl
     ld c, #BALL_WIDTH_BYTES
     ld b, #BALL_HEIGHT_PX
-sebb_pattern = . + 1
-    ld a, #0
+    pop af
     jp cpct_drawSolidBox_asm
 
 sys_entity_erase_one:
