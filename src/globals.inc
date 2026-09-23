@@ -81,6 +81,19 @@
 .globl sys_entity_init
 .globl sys_entity_create
 .globl sys_entity_draw_all
+.globl sys_entity_erase_all
+
+;; sys/physics.s
+.globl sys_physics_init
+.globl sys_physics_update
+
+;; sys/collision.s
+.globl sys_collision_init
+.globl sys_collision_update
+.globl sys_collision_set_handler
+.globl sys_collision_on_hit
+.globl sys_collision_check_pair
+.globl sys_collision_check_one_collider
 
 ;; game/table.s
 .globl game_table_init

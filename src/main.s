@@ -19,7 +19,7 @@
 
 .area _DATA
 
-_game_version_string: .asciz " POCKETFEVER V.004"
+_game_version_string: .asciz " POCKETFEVER V.005"
 
 ;; Runtime address of the 256-byte mask table. Copied here at boot so the
 ;; binary does not span 0x0100..0x4000 (hex2bin would pad ~15K).
@@ -93,6 +93,9 @@ _main::
 
     call game_table_init
 
+    call sys_physics_init
+    call sys_collision_init
+
     cpctm_screenPtr_asm de, 0xC000, 0, HUD_Y_PX+2
     ld hl, #_game_version_string
     ld c, #0
@@ -100,4 +103,8 @@ _main::
 
 loop:
     call cpct_waitVSYNC_asm
+    call sys_entity_erase_all
+    call sys_physics_update
+    call sys_collision_update
+    call sys_entity_draw_all
     jr loop
