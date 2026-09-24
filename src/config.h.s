@@ -14,6 +14,10 @@ MAX_ENTITIES     = 10
 FELT_PEN         = 10
 FELT_WIDTH_BYTES = 80
 
+;; Legal top-left pixel of a ball on the felt. Shared by physics and collision.
+TABLE_X_MAX = TABLE_WIDTH_PX-BALL_WIDTH_PX
+TABLE_Y_MAX = TABLE_Y_PX+TABLE_HEIGHT_PX-BALL_HEIGHT_PX
+
 ;; sys/text.s small-digit HUD font. Width in BYTES.
 S_SMALL_NUMBERS_WIDTH  = 2
 S_SMALL_NUMBERS_HEIGHT = 5

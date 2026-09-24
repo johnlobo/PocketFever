@@ -7,6 +7,24 @@
 .include "sys/entity.h.s"
 .include "sys/component.inc"
 
+;; Separation nudges stop at the cushion. An unclamped dec at x=0 gave 255,
+;; which physics read as past the right cushion and teleported the ball.
+.macro NudgeDec _coord, _min, ?skip
+    ld a, _coord
+    cp #_min+1
+    jr c, skip
+    dec _coord
+skip:
+.endm
+
+.macro NudgeInc _coord, _max, ?skip
+    ld a, _coord
+    cp #_max
+    jr nc, skip
+    inc _coord
+skip:
+.endm
+
 .area _DATA
 
 collision_handler: .dw sys_collision_balls_bounce
@@ -214,21 +232,21 @@ scbb_oy_done:
     ld a, e_y+1(ix)
     cp e_y+1(iy)
     jr c, scbb_ix_up
-    inc e_y+1(ix)
-    dec e_y+1(iy)
+    NudgeInc e_y+1(ix), TABLE_Y_MAX
+    NudgeDec e_y+1(iy), TABLE_Y_PX
     ret
 scbb_ix_up:
-    dec e_y+1(ix)
-    inc e_y+1(iy)
+    NudgeDec e_y+1(ix), TABLE_Y_PX
+    NudgeInc e_y+1(iy), TABLE_Y_MAX
     ret
 scbb_sep_x:
     ld a, e_x+1(ix)
     cp e_x+1(iy)
     jr c, scbb_ix_left
-    inc e_x+1(ix)
-    dec e_x+1(iy)
+    NudgeInc e_x+1(ix), TABLE_X_MAX
+    NudgeDec e_x+1(iy), 0
     ret
 scbb_ix_left:
-    dec e_x+1(ix)
-    inc e_x+1(iy)
+    NudgeDec e_x+1(ix), 0
+    NudgeInc e_x+1(iy), TABLE_X_MAX
     ret
