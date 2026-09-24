@@ -47,3 +47,6 @@ Debug/
 #Visual Studio hidden files
 *.vs
 *.cdt
+
+# Python bytecode from tests/
+__pycache__/

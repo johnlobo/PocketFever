@@ -13,9 +13,13 @@ make cleanall
 `CPCT_PATH` required. Load at `0x4000`.
 
 **Version bump + deploy + commit (do this unprompted after every significant change):**
-- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.007`).
+- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.008`).
 - Run `./code-server-compile.sh` — `make recode` and copy `PocketFever.dsk` to `../../www/gamez`. Always deploy before commit+push so the playable DSK is what gets tested.
 - `git commit` and `git push`. Do not wait to be asked.
+
+## Main loop timing
+
+Single buffer. Erase + draw must run right after `cpct_waitVSYNC_asm`, before the beam reaches the felt; physics + collision (~14 ms) go after. Putting work between erase and draw hides the balls (V.005-V.007 bug).
 
 ## Frozen layout
 
@@ -33,9 +37,10 @@ Copied from DeckTower (trimmed): `system`, `input`, `text`, `messages`, `array`.
 
 ```bash
 make && python3 tests/collision_test.py   # ~40 s, boots the real DSK in AmSpiriT-Lite
+python3 tests/render_test.py              # ~25 s, balls visible in real screenshots
 ```
 
-Runs the built game in `../tools/amspirit-lite` (headless), writes ball state into the entity pool through a Lua script and samples every ball each frame. Covers collision separation against all four cushions, the separation axis for every relative position, plus seeded random rounds (`--seed N`). Needs port 6128 free. Edits to a `.h.s` need `make clean && make` first (the Makefile does not track header dependencies).
+Runs the built game in `../tools/amspirit-lite` (headless), writes ball state into the entity pool through a Lua script and samples every ball each frame. Covers collision separation against all four cushions, the separation axis for every relative position, plus seeded random rounds (`--seed N`). `render_test` checks the emulator's screenshot (what the beam drew), not video RAM: every ball's 4×6 pixels must show its pen colour. Shared driver in `tests/amspirit.py`. Run the tests one at a time; each needs port 6128 free. Edits to a `.h.s` need `make clean && make` first (the Makefile does not track header dependencies).
 
 ## Commands
 

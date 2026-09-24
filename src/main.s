@@ -19,7 +19,7 @@
 
 .area _DATA
 
-_game_version_string: .asciz " POCKETFEVER V.007"
+_game_version_string: .asciz " POCKETFEVER V.008"
 
 ;; Runtime address of the 256-byte mask table. Copied here at boot so the
 ;; binary does not span 0x0100..0x4000 (hex2bin would pad ~15K).
@@ -101,10 +101,13 @@ _main::
     ld c, #0
     call sys_text_draw_string
 
+;; Erase + draw run right after VSYNC, while the beam is still in the top
+;; border/HUD. Physics + collision take ~14 ms; between erase and draw they
+;; kept the balls off screen for the whole felt scan.
 loop:
     call cpct_waitVSYNC_asm
     call sys_entity_erase_all
+    call sys_entity_draw_all
     call sys_physics_update
     call sys_collision_update
-    call sys_entity_draw_all
     jr loop

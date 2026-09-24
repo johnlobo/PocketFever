@@ -35,84 +35,15 @@ Usage: python3 tests/collision_test.py [--keep-emulator]
 Needs a built game (make) and nothing else listening on 127.0.0.1:6128.
 """
 import argparse
-import json
-import os
-import pathlib
 import re
-import signal
-import subprocess
 import sys
 import time
-import urllib.request
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-EMU = ROOT.parent / "tools" / "amspirit-lite" / "run.sh"
-API = "http://127.0.0.1:6128"
-ENTITY_SIZE = 13          # sys/entity.h.s: cmps,x(2),y(2),vx(2),vy(2),old_x,old_y,id,color
+from amspirit import (BALL_COUNT, ENTITY_SIZE, boot, config_value, get, post,
+                      shutdown, symbols)
+
 STRESS_ROUNDS = 8
 STRESS_FRAMES = 60
-
-
-def config_value(name):
-    text = (ROOT / "src" / "config.h.s").read_text()
-    match = re.search(rf"^\s*{name}\s*=\s*(\d+)", text, re.M)
-    if not match:
-        sys.exit(f"{name} missing from src/config.h.s")
-    return int(match.group(1))
-
-
-def symbols():
-    noi = ROOT / "obj" / "PocketFever.noi"
-    table = dict(re.findall(r"^DEF (\S+) 0x([0-9A-Fa-f]+)", noi.read_text(), re.M))
-    return {name: int(table[name], 16) for name in
-            ("entity_count", "entity_array")}
-
-
-def get(path):
-    with urllib.request.urlopen(API + path, timeout=5) as reply:
-        return json.load(reply)
-
-
-def post(path, body, content_type="application/json"):
-    request = urllib.request.Request(API + path, data=body.encode(), method="POST",
-                                     headers={"Content-Type": content_type})
-    with urllib.request.urlopen(request, timeout=5) as reply:
-        return json.load(reply)
-
-
-def ram(address, length):
-    return bytes.fromhex(get(f"/api/ram?addr={address}&len={length}")["hex"])
-
-
-def wait_for(predicate, timeout, what):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            if predicate():
-                return
-        except OSError:
-            pass
-        time.sleep(0.5)
-    sys.exit(f"timed out waiting for {what}")
-
-
-def boot(sym):
-    try:
-        get("/api/ping")
-        sys.exit("something already listens on 127.0.0.1:6128; stop that emulator first")
-    except OSError:
-        pass
-    emulator = subprocess.Popen([str(EMU), "--web-server", str(ROOT / "PocketFever.dsk")],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                start_new_session=True)
-    wait_for(lambda: get("/api/ping")["ok"], 30, "emulator API")
-    time.sleep(2)  # ROM boot to the BASIC prompt
-    post("/api/keytype", json.dumps({"text": 'run"pocketfe\n'}))
-    # Pool header count/max_count/component_size: zero RAM until game_table_init fills it.
-    header = bytes([10, 10, ENTITY_SIZE])
-    wait_for(lambda: ram(sym["entity_count"], 3) == header, 120, "game main loop")
-    time.sleep(1)
-    return emulator
 
 
 LUA = r"""
@@ -211,7 +142,7 @@ print(string.format("DONE failures=%%d", failures))
 
 def run_lua(sym, seed, rounds, frames):
     source = LUA % {
-        "array": sym["entity_array"], "size": ENTITY_SIZE, "count": 10,
+        "array": sym["entity_array"], "size": ENTITY_SIZE, "count": BALL_COUNT,
         "xmax": config_value("TABLE_WIDTH_PX") - config_value("BALL_WIDTH_PX"),
         "ymin": config_value("TABLE_Y_PX"),
         "ymax": config_value("TABLE_Y_PX") + config_value("TABLE_HEIGHT_PX")
@@ -239,20 +170,13 @@ def main():
     parser.add_argument("--seed", type=int, default=1984)
     args = parser.parse_args()
 
-    sym = symbols()
-    emulator = boot(sym)
+    sym = symbols("entity_array")
+    emulator = boot()
     try:
         output = run_lua(sym, args.seed, STRESS_ROUNDS, STRESS_FRAMES)
     finally:
         if not args.keep_emulator:
-            try:
-                post("/api/quit", "{}")
-            except OSError:
-                pass
-            try:
-                emulator.wait(10)
-            except subprocess.TimeoutExpired:
-                os.killpg(emulator.pid, signal.SIGKILL)  # run.sh wraps xvfb-run; take the group
+            shutdown(emulator)
     print(output, end="")
     match = re.search(r"DONE failures=(\d+)", output)
     if not match or int(match.group(1)):
