@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Regression test: ball-ball separation must never push a ball off the felt.
+"""Regression tests for ball-ball separation in sys_collision_balls_bounce.
+
+1. Separation must never push a ball off the felt.
+2. Separation must use the axis with the smaller real overlap, whichever side
+   of IX the other ball is on (the overlap used to be ix+size-iy, which is
+   size+distance when IY sits left of / above IX, so it picked the wrong axis).
 
 Boots the real PocketFever.dsk in AmSpiriT-Lite (headless, tools/amspirit-lite),
 waits for the main loop, then drives the running game from a server-side Lua
@@ -26,7 +31,7 @@ changed entity layout times out instead of poking the wrong bytes.
 Pass = no ball ever outside x 0..TABLE_X_MAX, y TABLE_Y_PX..TABLE_Y_MAX, and
 every edge scenario settles on its exact expected positions.
 
-Usage: python3 tests/cushion_nudge_test.py [--keep-emulator]
+Usage: python3 tests/collision_test.py [--keep-emulator]
 Needs a built game (make) and nothing else listening on 127.0.0.1:6128.
 """
 import argparse
@@ -168,12 +173,23 @@ expect("mid", r, 8, 39, 130)         expect("mid", r, 9, 43, 131)
 -- Left-cushion ball hit by a ball moving straight down: swap hands it vx=0,
 -- which is exactly what turned x=255 into a teleport to the right cushion.
 r = run("teleport", {
-  {0, 0, 100, 0, 0}, {1, 2, 95, 0, 256},
+  {0, 0, 100, 0, 0}, {1, 2, 97, 0, 256},
   {2, 150, 190, 0, 0}, {3, 100, 190, 0, 0}, {4, 60, 190, 0, 0}, {5, 20, 190, 0, 0},
   {6, 150, 150, 0, 0}, {7, 100, 150, 0, 0}, {8, 60, 150, 0, 0}, {9, 20, 150, 0, 0},
 }, 20)
 local tx = pos(r, 0)
 if tx > 4 then fail("teleport: left-cushion ball ended at x=" .. tx) end
+
+-- Overlap per axis is size - |distance|. Old code computed ix+size-iy, which
+-- for IY left of / above IX is size+distance and flipped the chosen axis.
+r = run("overlap axis", {
+  {0, 10, 130, 0, 0}, {1, 7, 131, 0, 0},      -- IY left of IX: x overlap 1 < y 5, split on x
+  {2, 60, 140, 0, 0}, {3, 62, 135, 0, 0},     -- IY above IX: y overlap 1 < x 2, split on y
+  {4, 20, 190, 0, 0}, {5, 60, 190, 0, 0}, {6, 100, 190, 0, 0},
+  {7, 140, 190, 0, 0}, {8, 20, 80, 0, 0}, {9, 140, 80, 0, 0},
+}, 8)
+expect("iy left", r, 0, 11, 130)     expect("iy left", r, 1, 6, 131)
+expect("iy above", r, 2, 60, 141)    expect("iy above", r, 3, 62, 134)
 
 local seed = %(seed)d
 local function rand(n) seed = (seed * 1103515245 + 12345) %% 2147483648 return seed %% n end
@@ -240,9 +256,9 @@ def main():
     print(output, end="")
     match = re.search(r"DONE failures=(\d+)", output)
     if not match or int(match.group(1)):
-        print("cushion_nudge_test: FAIL")
+        print("collision_test: FAIL")
         return 1
-    print("cushion_nudge_test: PASS")
+    print("collision_test: PASS")
     return 0
 
 

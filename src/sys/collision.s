@@ -198,35 +198,24 @@ sys_collision_balls_bounce:
     ld e_vy(iy), l
     ld e_vy+1(iy), h
 
+    ;; Overlap per axis = size - |distance|, whichever side IY is on.
     ld a, e_x+1(ix)
-    add a, #BALL_WIDTH_PX
-    ld b, a
-    ld a, e_x+1(iy)
-    cp b
-    ld a, b
-    jr nc, scbb_ox_iy
     sub e_x+1(iy)
-    jr scbb_ox_done
-scbb_ox_iy:
-    ld a, e_x+1(iy)
-    add a, #BALL_WIDTH_PX
-    sub e_x+1(ix)
-scbb_ox_done:
+    jr nc, scbb_dx_pos
+    neg
+scbb_dx_pos:
+    ld c, a
+    ld a, #BALL_WIDTH_PX
+    sub c
     ld c, a
     ld a, e_y+1(ix)
-    add a, #BALL_HEIGHT_PX
-    ld b, a
-    ld a, e_y+1(iy)
-    cp b
-    ld a, b
-    jr nc, scbb_oy_iy
     sub e_y+1(iy)
-    jr scbb_oy_done
-scbb_oy_iy:
-    ld a, e_y+1(iy)
-    add a, #BALL_HEIGHT_PX
-    sub e_y+1(ix)
-scbb_oy_done:
+    jr nc, scbb_dy_pos
+    neg
+scbb_dy_pos:
+    ld b, a
+    ld a, #BALL_HEIGHT_PX
+    sub b
     cp c
     jr nc, scbb_sep_x
     ld a, e_y+1(ix)
