@@ -25,3 +25,9 @@ S_SMALL_NUMBERS_HEIGHT = 5
 ;; 1 = border shows main-loop phases (black idle, red erase+draw, yellow
 ;; physics, white collision). Debug only; toggling needs make clean && make.
 PROFILE_RASTER = 0
+
+;; game/shot.s random test shot: power is a random multiple of the 0.25
+;; line/frame direction step, i.e. 2..4 raster lines per frame. The top end
+;; stays under BALL_HEIGHT_PX so no ball can jump through another in a frame.
+SHOT_POWER_MIN  = 8
+SHOT_POWER_SPAN = 8

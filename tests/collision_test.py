@@ -201,6 +201,25 @@ local function with_parked(balls)
   return balls
 end
 
+-- Cushion bounce (sys/physics.s): one ball heading into each cushion at
+-- 2 px/frame must come back with the opposite velocity and stay on the felt.
+local function vel(r, slot)
+  local o = slot * SZ
+  local function s16(lo, hi) local v = r:byte(o + lo) + 256 * r:byte(o + hi) return v >= 32768 and v - 65536 or v end
+  return s16(6, 7), s16(8, 9)
+end
+r = run("cushions", with_parked({{0, 6, 120, -512, 0}, {1, XMAX - 6, 140, 512, 0},
+                                 {2, 70, YMIN + 6, 0, -512}}), 12)
+local vx0 = vel(r, 0)
+local vx1 = vel(r, 1)
+local _, vy2 = vel(r, 2)
+if vx0 <= 0 then fail("left cushion: vx still " .. vx0) end
+if vx1 >= 0 then fail("right cushion: vx still " .. vx1) end
+if vy2 <= 0 then fail("top cushion: vy still " .. vy2) end
+r = run("bottom cushion", with_parked({{0, 70, YMAX - 6, 0, 512}}), 12)
+local _, vy0 = vel(r, 0)
+if vy0 >= 0 then fail("bottom cushion: vy still " .. vy0) end
+
 -- Critic repros against earlier designs; each must end at rest, apart, steady.
 -- Ball struck mid-pass by one collider, then reached by the next.
 run("struck mid-pass", with_parked({{0, 50, 100, 0, 0}, {1, 47, 100, 16, 0}, {2, 52, 100, -16, 0}}), 3)

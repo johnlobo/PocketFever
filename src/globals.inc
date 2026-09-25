@@ -100,6 +100,10 @@
 ;; game/table.s
 .globl game_table_init
 
+;; game/shot.s, game/shot_table.s
+.globl game_shot_update
+.globl shot_directions
+
 ;; sys/text.s
 .globl aux_txt
 .globl sys_text_init

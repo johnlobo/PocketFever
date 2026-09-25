@@ -19,11 +19,13 @@
 
 .area _DATA
 
-_game_version_string: .asciz " POCKETFEVER V.009"
+_game_version_string: .asciz " POCKETFEVER V.010"
 
 ;; Main-loop iterations, wraps at 65536. tests/perf_test.py compares it with
 ;; emulated frames to measure the real loop rate.
 game_loop_count:: .dw 0
+
+shot_hint_string: .asciz " SPACE: RANDOM SHOT"
 
 ;; Runtime address of the 256-byte mask table. Copied here at boot so the
 ;; binary does not span 0x0100..0x4000 (hex2bin would pad ~15K).
@@ -105,6 +107,11 @@ _main::
     ld c, #0
     call sys_text_draw_string
 
+    cpctm_screenPtr_asm de, 0xC000, 0, HUD_Y_PX+20
+    ld hl, #shot_hint_string
+    ld c, #0
+    call sys_text_draw_string
+
 ;; PROFILE_RASTER (config.h.s) paints the border one colour per phase, so a
 ;; screenshot shows how many raster lines each phase takes.
 .macro ProfileBorder _hw
@@ -123,6 +130,7 @@ loop:
     ProfileBorder HW_BRIGHT_RED
     call sys_entity_erase_all
     call sys_entity_draw_all
+    call game_shot_update
     ProfileBorder HW_BRIGHT_YELLOW
     call sys_physics_update
     ProfileBorder HW_BRIGHT_WHITE
