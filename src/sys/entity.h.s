@@ -18,6 +18,7 @@ BALL_CMPS = c_cmp_render | c_cmp_movable | c_cmp_collider | c_cmp_collisionable
     .db _id
     .db _pen
     .db CF_PENDING
+    .db 0
 .endm
 
 BeginStruct e
@@ -31,6 +32,7 @@ Field e, old_y, 1
 Field e, id, 1
 Field e, color, 1
 Field e, cflags, 1
+Field e, facc, 1
 EndStruct e
 
 ;; e_cflags. Every change of a ball's position sets CF_PENDING (physics when

@@ -53,13 +53,13 @@ local XMAX, YMIN, YMAX = %(xmax)d, %(ymin)d, %(ymax)d
 local failures = 0
 
 local function word(v) if v < 0 then v = v + 65536 end return v %% 256, v // 256 end
--- Also sets CF_PENDING (e_cflags = 2): placing a ball is a position change,
+-- Also sets CF_PENDING (e_cflags = 2) and clears e_facc: placing a ball is a position change,
 -- and collision only checks pairs with a changed ball.
 local function place(slot, x, y, vx, vy, fx, fy)
   local vxl, vxh = word(vx)
   local vyl, vyh = word(vy)
   cpc.setRam(ARR + slot * SZ + 1, string.char(fx or 0, x, fy or 0, y, vxl, vxh, vyl, vyh))
-  cpc.setRam(ARR + slot * SZ + 13, string.char(2))
+  cpc.setRam(ARR + slot * SZ + 13, string.char(2, 0))   -- CF_PENDING, e_facc = 0
 end
 local function pos(r, slot) return r:byte(slot * SZ + 3), r:byte(slot * SZ + 5) end
 local function fail(msg) failures = failures + 1 print("FAIL " .. msg) end

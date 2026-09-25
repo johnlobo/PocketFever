@@ -19,7 +19,7 @@
 
 .area _DATA
 
-_game_version_string: .asciz " POCKETFEVER V.011"
+_game_version_string: .asciz " POCKETFEVER V.012"
 
 ;; Main-loop iterations, wraps at 65536. tests/perf_test.py compares it with
 ;; emulated frames to measure the real loop rate.

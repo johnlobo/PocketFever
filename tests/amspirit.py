@@ -23,7 +23,7 @@ import zlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 EMU = ROOT.parent / "tools" / "amspirit-lite" / "run.sh"
 API = "http://127.0.0.1:6128"
-ENTITY_SIZE = 14          # sys/entity.h.s: cmps,x(2),y(2),vx(2),vy(2),old_x,old_y,id,color,cflags
+ENTITY_SIZE = 15          # sys/entity.h.s: cmps,x(2),y(2),vx(2),vy(2),old_x,old_y,id,color,cflags,facc
 BALL_COUNT = 10
 
 

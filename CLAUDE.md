@@ -13,7 +13,7 @@ make cleanall
 `CPCT_PATH` required. Load at `0x4000`.
 
 **Version bump + deploy + commit (do this unprompted after every significant change):**
-- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.011`).
+- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.012`).
 - Run `./code-server-compile.sh` — `make recode` and copy `PocketFever.dsk` to `../../www/gamez`. Always deploy before commit+push so the playable DSK is what gets tested.
 - `git commit` and `git push`. Do not wait to be asked.
 
@@ -21,11 +21,15 @@ make cleanall
 
 Single buffer. Erase + draw must run right after `cpct_waitVSYNC_asm`, before the beam reaches the felt; physics + collision go after (~14 ms in V.008, much less since V.009). Putting work between erase and draw hides the balls (V.005-V.007 bug).
 
-`game_loop_count` (main.s) counts loop iterations; `perf_test.py` compares it with emulated frames. For a per-phase breakdown set `PROFILE_RASTER = 1` in config.h.s (`make clean && make`): the border turns black while idle, red for erase+draw, yellow for physics and white for collision, so a screenshot shows each phase in raster lines. V.009, visible lines at rest / all 10 moving: erase+draw ≥81 / ≥80, physics 12 / 42, collision 6 / 64, idle 172 / 85 (V.008: collision 133 / 136, idle 26 / 18).
+`game_loop_count` (main.s) counts loop iterations; `perf_test.py` compares it with emulated frames. For a per-phase breakdown set `PROFILE_RASTER = 1` in config.h.s (`make clean && make`): the border turns black while idle, red for erase+draw, yellow for physics and white for collision, so a screenshot shows each phase in raster lines. V.012, visible lines at rest / all 10 moving: erase+draw ≥81 / ≥80, physics 13 / 106, collision 5 / 64, idle 172 / 21 (V.011 physics 42 all moving; the per-ball division in friction costs ~6 lines per moving ball; caching the direction ratio would win it back). V.008: collision 133 / 136, idle 26 / 18.
+
+## Friction
+
+`sys_physics_friction` slows a ball by `PHYS_FRICTION` (4/256 px per frame per frame since V.012) along its direction of travel: the dominant axis loses F, the other F·minor/major (8-bit fraction, remainder carried in `e_facc`). Paths stay straight while slowing. Friction per axis (V.011 and earlier) stopped the smaller component first and bent diagonal rolls by up to 20°, worst on x because x numbers are ~0.6× smaller for the same screen speed. `tools/friction_model.py` models this code exactly, compares models (end drift, bend, distance, stop time) and is the spec `tests/physics_test.py` checks against. Change friction there first, then in physics.s.
 
 ## Test shot (temporary, until aiming exists)
 
-`game/shot.s`: hold SPACE to charge, release to fire the cue ball (slot 0) in one of 32 random directions from `src/game/shot_table.s`. Power starts at `SHOT_POWER_MIN` on the first held frame and gains 1 every `SHOT_CHARGE_STEP` frames up to `MIN+SPAN` (config.h.s): 2..4 raster lines per frame, full after ~1 s. A HUD bar (`SHOT_BAR_*`) grows one segment per level and clears on release. Keep the top speed under `BALL_HEIGHT_PX` lines per frame or balls can pass through each other. The table is generated: edit `tools/gen_shot_table.py` and rerun `python3 tools/gen_shot_table.py > src/game/shot_table.s`; it corrects x for the wide mode 0 pixel (1.65 line heights) so every direction covers the same screen distance. The RNG is seeded on the first press. Cushions: physics clamps and reverses velocity at all four edges; there are no pockets yet. Friction (`PHYS_FRICTION`, physics.s) is 6/256 px per frame per axis since V.011 (was 8).
+`game/shot.s`: hold SPACE to charge, release to fire the cue ball (slot 0) in one of 32 random directions from `src/game/shot_table.s`. Power starts at `SHOT_POWER_MIN` on the first held frame and gains 1 every `SHOT_CHARGE_STEP` frames up to `MIN+SPAN` (config.h.s): 2..4 raster lines per frame, full after ~1 s. A HUD bar (`SHOT_BAR_*`) grows one segment per level and clears on release. Keep the top speed under `BALL_HEIGHT_PX` lines per frame or balls can pass through each other. The table is generated: edit `tools/gen_shot_table.py` and rerun `python3 tools/gen_shot_table.py > src/game/shot_table.s`; it corrects x for the wide mode 0 pixel (1.65 line heights) so every direction covers the same screen distance. The RNG is seeded on the first press. Cushions: physics clamps and reverses velocity at all four edges; there are no pockets yet.
 
 Emulator tests: in AmSpiriT Lua, `wait_frames(n)` advances n+1 frames (see `tests/amspirit.py`); samples taken in a `wait_frames(1)` loop are every other frame.
 
@@ -55,6 +59,7 @@ make && python3 tests/collision_test.py   # ~40 s, boots the real DSK in AmSpiri
 python3 tests/render_test.py              # ~25 s, balls visible in real screenshots
 python3 tests/perf_test.py                # ~30 s, main loop at 50 Hz (rest, break, all moving)
 python3 tests/shot_test.py                # ~90 s, hold SPACE 3/27/60 frames: power 8/12/16, balls settle cleanly
+python3 tests/physics_test.py             # ~60 s, friction along the direction, bit-exact with tools/friction_model.py
 ```
 
 Runs the built game in `../tools/amspirit-lite` (headless), writes ball state into the entity pool through a Lua script and samples every ball each frame. Covers collision separation against all four cushions, the separation axis for every relative position, plus seeded random rounds (`--seed N`). `render_test` checks the emulator's screenshot (what the beam drew), not video RAM: every ball's 4×6 pixels must show its pen colour. Shared driver in `tests/amspirit.py`. Run the tests one at a time; each needs port 6128 free. Edits to a `.h.s` need `make clean && make` first (the Makefile does not track header dependencies).

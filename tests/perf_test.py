@@ -33,6 +33,7 @@ local function place(slot, x, y, vx, vy)
   local vxl, vxh = word(vx)
   local vyl, vyh = word(vy)
   cpc.setRam(ARR + slot * SZ + 1, string.char(0, x, 0, y, vxl, vxh, vyl, vyh))
+  cpc.setRam(ARR + slot * SZ + 13, string.char(2, 0))   -- CF_PENDING, e_facc = 0
 end
 local function loops() local r = cpc.getRam(COUNTER, 2) return r:byte(1) + 256 * r:byte(2) end
 -- wait_frames(n) advances n+1 frames (tests/amspirit.py), so this spans exactly `frames`.
