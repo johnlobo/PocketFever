@@ -21,3 +21,7 @@ TABLE_Y_MAX = TABLE_Y_PX+TABLE_HEIGHT_PX-BALL_HEIGHT_PX
 ;; sys/text.s small-digit HUD font. Width in BYTES.
 S_SMALL_NUMBERS_WIDTH  = 2
 S_SMALL_NUMBERS_HEIGHT = 5
+
+;; 1 = border shows main-loop phases (black idle, red erase+draw, yellow
+;; physics, white collision). Debug only; toggling needs make clean && make.
+PROFILE_RASTER = 0

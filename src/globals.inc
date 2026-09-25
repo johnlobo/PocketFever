@@ -19,10 +19,12 @@
 .globl cpct_drawSpriteMaskedAlignedTable_asm
 .globl cpct_pens2pixelPatternPairM0_asm
 .globl cpct_getScreenToSprite_asm
+.globl cpct_setPALColour_asm
 .globl _cpct_keyboardStatusBuffer
 
 ;; main.s
 .globl transparency_table
+.globl game_loop_count
 
 ;; generated assets
 .globl _g_palette0

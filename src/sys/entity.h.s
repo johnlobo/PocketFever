@@ -17,6 +17,7 @@ BALL_CMPS = c_cmp_render | c_cmp_movable | c_cmp_collider | c_cmp_collisionable
     .db _y
     .db _id
     .db _pen
+    .db CF_PENDING
 .endm
 
 BeginStruct e
@@ -29,4 +30,21 @@ Field e, old_x, 1
 Field e, old_y, 1
 Field e, id, 1
 Field e, color, 1
+Field e, cflags, 1
 EndStruct e
+
+;; e_cflags. Every change of a ball's position sets CF_PENDING (physics when
+;; it integrates, collision separation, anything that places a ball). At the
+;; start of each collision pass PENDING becomes CF_ACTIVE, a snapshot that
+;; stays fixed for the pass; a pair is checked only if one ball is ACTIVE.
+CF_ACTIVE        = 0x01
+CF_PENDING       = 0x02
+CF_PENDING_BIT   = 1
+
+;; Z when the ball has no velocity at all. Clobbers A.
+.macro IsStill _r
+    ld a, e_vx(_r)
+    or e_vx+1(_r)
+    or e_vy(_r)
+    or e_vy+1(_r)
+.endm

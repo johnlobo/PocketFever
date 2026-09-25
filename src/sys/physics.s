@@ -42,11 +42,16 @@ sys_physics_update::
 ;;
 ;; sys_physics_update_one
 ;;
+;;  Still balls return at once: friction, integration and cushion checks
+;;  do nothing for them. A moving ball is marked CF_PENDING for collision.
 ;;  Input: IX = entity
 ;;  Output:
 ;;  Modified: AF, BC, DE, HL
 ;;
 sys_physics_update_one:
+    IsStill ix
+    ret z
+    set CF_PENDING_BIT, e_cflags(ix)
     ld l, e_vx(ix)
     ld h, e_vx+1(ix)
     call sys_physics_friction

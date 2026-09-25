@@ -9,19 +9,22 @@
 
 ;; Separation nudges stop at the cushion. An unclamped dec at x=0 gave 255,
 ;; which physics read as past the right cushion and teleported the ball.
-.macro NudgeDec _coord, _min, ?skip
+;; A nudged ball is marked CF_PENDING so the next pass rechecks all its pairs.
+.macro NudgeDec _coord, _flags, _min, ?skip
     ld a, _coord
     cp #_min+1
     jr c, skip
     dec _coord
+    set CF_PENDING_BIT, _flags
 skip:
 .endm
 
-.macro NudgeInc _coord, _max, ?skip
+.macro NudgeInc _coord, _flags, _max, ?skip
     ld a, _coord
     cp #_max
     jr nc, skip
     inc _coord
+    set CF_PENDING_BIT, _flags
 skip:
 .endm
 
@@ -121,62 +124,107 @@ sys_collision_check_pair::
 ;;
 ;; sys_collision_check_one_collider
 ;;
-;;  Inner IY loop is manual so it does not smash execute_each's temporaries.
-;;  Input: IX = collider
+;;  Checks IX against every later slot (earlier slots already checked
+;;  their pair with IX). An ACTIVE collider checks all of them; an idle one
+;;  only the ACTIVE ones.
+;;  Input: IX = collider, A = its slot index
 ;;  Output:
-;;  Modified: AF, B, DE, HL, IY
+;;  Modified: AF, BC, DE, HL, IY
 ;;
 sys_collision_check_one_collider::
     ld iy, #entities
+    ld c, a
     ld a, a_count(iy)
-    or a
+    sub c
+    dec a
     ret z
     ld b, a
-    push iy
-    pop hl
-    ld de, #a_array
-    add hl, de
-    push hl
+    push ix
     pop iy
-sccoc_loop:
+    ld de, #sizeof_e
+    add iy, de
+    bit 0, e_cflags(ix)
+    jr nz, sccoc_all
+sccoc_active_only:
     push bc
     ld a, x_cmps(iy)
     and #c_cmp_collisionable
-    cp #c_cmp_collisionable
-    jr nz, sccoc_next
-    push ix
-    pop hl
-    push iy
-    pop de
-    ld a, h
-    cp d
-    jr c, sccoc_check
-    jr nz, sccoc_next
-    ld a, l
-    cp e
-    jr nc, sccoc_next
-sccoc_check:
-    call sys_collision_check_pair
-sccoc_next:
+    jr z, sccoc_active_next
+    bit 0, e_cflags(iy)
+    call nz, sys_collision_check_pair
+sccoc_active_next:
     ld de, #sizeof_e
     add iy, de
     pop bc
-    djnz sccoc_loop
+    djnz sccoc_active_only
+    ret
+sccoc_all:
+    push bc
+    ld a, x_cmps(iy)
+    and #c_cmp_collisionable
+    call nz, sys_collision_check_pair
+    ld de, #sizeof_e
+    add iy, de
+    pop bc
+    djnz sccoc_all
     ret
 
 ;;-----------------------------------------------------------------
 ;;
 ;; sys_collision_update
 ;;
+;;  Checks each pair once (lower slot is the collider), but only pairs where
+;;  at least one ball changed position since it was last checked (CF_ACTIVE).
+;;  Pairs of unchanged balls cannot have a new overlap, and an old one was
+;;  seen when it was made; the nudge moves at least one ball (both, unless
+;;  one sits on the cushion) and marks it again. A table at rest costs one
+;;  pass over the flags.
 ;;  Input:
 ;;  Output:
 ;;  Modified: AF, BC, DE, HL, IX, IY
 ;;
 sys_collision_update::
     ld ix, #entities
-    ld b, #c_cmp_collider
-    ld hl, #sys_collision_check_one_collider
-    jp sys_array_execute_each_ix_matching
+    ld a, a_count(ix)
+    or a
+    ret z
+    ld b, a
+    ld de, #a_array
+    add ix, de
+    push ix
+    push bc
+    ld de, #sizeof_e
+    ld c, #0
+scu_mark:
+    ld a, e_cflags(ix)
+    and #CF_PENDING
+    jr z, scu_idle
+    ld e_cflags(ix), #CF_ACTIVE
+    inc c
+    jr scu_mark_next
+scu_idle:
+    ld e_cflags(ix), #0
+scu_mark_next:
+    add ix, de
+    djnz scu_mark
+    ld a, c
+    pop bc
+    pop ix
+    or a
+    ret z
+    ld c, #0
+scu_loop:
+    push bc
+    ld a, x_cmps(ix)
+    and #c_cmp_collider
+    ld a, c
+    call nz, sys_collision_check_one_collider
+    ld de, #sizeof_e
+    add ix, de
+    pop bc
+    inc c
+    djnz scu_loop
+    ret
 
 ;; Equal-mass bounce: swap 8.8 velocities and nudge apart on the
 ;; axis with the smaller overlap so they do not stick.
@@ -221,21 +269,21 @@ scbb_dy_pos:
     ld a, e_y+1(ix)
     cp e_y+1(iy)
     jr c, scbb_ix_up
-    NudgeInc e_y+1(ix), TABLE_Y_MAX
-    NudgeDec e_y+1(iy), TABLE_Y_PX
+    NudgeInc e_y+1(ix), e_cflags(ix), TABLE_Y_MAX
+    NudgeDec e_y+1(iy), e_cflags(iy), TABLE_Y_PX
     ret
 scbb_ix_up:
-    NudgeDec e_y+1(ix), TABLE_Y_PX
-    NudgeInc e_y+1(iy), TABLE_Y_MAX
+    NudgeDec e_y+1(ix), e_cflags(ix), TABLE_Y_PX
+    NudgeInc e_y+1(iy), e_cflags(iy), TABLE_Y_MAX
     ret
 scbb_sep_x:
     ld a, e_x+1(ix)
     cp e_x+1(iy)
     jr c, scbb_ix_left
-    NudgeInc e_x+1(ix), TABLE_X_MAX
-    NudgeDec e_x+1(iy), 0
+    NudgeInc e_x+1(ix), e_cflags(ix), TABLE_X_MAX
+    NudgeDec e_x+1(iy), e_cflags(iy), 0
     ret
 scbb_ix_left:
-    NudgeDec e_x+1(ix), 0
-    NudgeInc e_x+1(iy), TABLE_X_MAX
+    NudgeDec e_x+1(ix), e_cflags(ix), 0
+    NudgeInc e_x+1(iy), e_cflags(iy), TABLE_X_MAX
     ret
