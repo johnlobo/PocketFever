@@ -19,13 +19,13 @@
 
 .area _DATA
 
-_game_version_string: .asciz " POCKETFEVER V.010"
+_game_version_string: .asciz " POCKETFEVER V.011"
 
 ;; Main-loop iterations, wraps at 65536. tests/perf_test.py compares it with
 ;; emulated frames to measure the real loop rate.
 game_loop_count:: .dw 0
 
-shot_hint_string: .asciz " SPACE: RANDOM SHOT"
+shot_hint_string: .asciz " HOLD SPACE: CHARGE SHOT"
 
 ;; Runtime address of the 256-byte mask table. Copied here at boot so the
 ;; binary does not span 0x0100..0x4000 (hex2bin would pad ~15K).

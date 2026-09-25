@@ -2,6 +2,11 @@
 
 Boots the built PocketFever.dsk in ../tools/amspirit-lite, talks to its REST API
 on 127.0.0.1:6128 and decodes its PNG screenshots. Stdlib only.
+
+Lua timing (measured against game_loop_count, one main-loop pass per frame):
+wait_frames(n) advances n+1 emulated frames. A sampling loop built on
+wait_frames(1) therefore sees every other frame, and a hold of H frames is
+wait_frames(H - 1).
 """
 import json
 import os

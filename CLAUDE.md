@@ -13,7 +13,7 @@ make cleanall
 `CPCT_PATH` required. Load at `0x4000`.
 
 **Version bump + deploy + commit (do this unprompted after every significant change):**
-- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.010`).
+- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.011`).
 - Run `./code-server-compile.sh` — `make recode` and copy `PocketFever.dsk` to `../../www/gamez`. Always deploy before commit+push so the playable DSK is what gets tested.
 - `git commit` and `git push`. Do not wait to be asked.
 
@@ -25,7 +25,9 @@ Single buffer. Erase + draw must run right after `cpct_waitVSYNC_asm`, before th
 
 ## Test shot (temporary, until aiming exists)
 
-`game/shot.s`: each SPACE press (edge, not hold) fires the cue ball (slot 0) in one of 32 directions from `src/game/shot_table.s` with power `SHOT_POWER_MIN..+SHOT_POWER_SPAN` (config.h.s), 2..4 raster lines per frame. Keep the top speed under `BALL_HEIGHT_PX` lines per frame or balls can pass through each other. The table is generated: edit `tools/gen_shot_table.py` and rerun `python3 tools/gen_shot_table.py > src/game/shot_table.s`; it corrects x for the wide mode 0 pixel (1.65 line heights) so every direction covers the same screen distance. The RNG is seeded on the first press. Cushions: physics clamps and reverses velocity at all four edges; there are no pockets yet.
+`game/shot.s`: hold SPACE to charge, release to fire the cue ball (slot 0) in one of 32 random directions from `src/game/shot_table.s`. Power starts at `SHOT_POWER_MIN` on the first held frame and gains 1 every `SHOT_CHARGE_STEP` frames up to `MIN+SPAN` (config.h.s): 2..4 raster lines per frame, full after ~1 s. A HUD bar (`SHOT_BAR_*`) grows one segment per level and clears on release. Keep the top speed under `BALL_HEIGHT_PX` lines per frame or balls can pass through each other. The table is generated: edit `tools/gen_shot_table.py` and rerun `python3 tools/gen_shot_table.py > src/game/shot_table.s`; it corrects x for the wide mode 0 pixel (1.65 line heights) so every direction covers the same screen distance. The RNG is seeded on the first press. Cushions: physics clamps and reverses velocity at all four edges; there are no pockets yet. Friction (`PHYS_FRICTION`, physics.s) is 6/256 px per frame per axis since V.011 (was 8).
+
+Emulator tests: in AmSpiriT Lua, `wait_frames(n)` advances n+1 frames (see `tests/amspirit.py`); samples taken in a `wait_frames(1)` loop are every other frame.
 
 ## Collision rules
 
@@ -52,7 +54,7 @@ Copied from DeckTower (trimmed): `system`, `input`, `text`, `messages`, `array`.
 make && python3 tests/collision_test.py   # ~40 s, boots the real DSK in AmSpiriT-Lite
 python3 tests/render_test.py              # ~25 s, balls visible in real screenshots
 python3 tests/perf_test.py                # ~30 s, main loop at 50 Hz (rest, break, all moving)
-python3 tests/shot_test.py                # ~60 s, SPACE fires the cue ball, balls settle cleanly
+python3 tests/shot_test.py                # ~90 s, hold SPACE 3/27/60 frames: power 8/12/16, balls settle cleanly
 ```
 
 Runs the built game in `../tools/amspirit-lite` (headless), writes ball state into the entity pool through a Lua script and samples every ball each frame. Covers collision separation against all four cushions, the separation axis for every relative position, plus seeded random rounds (`--seed N`). `render_test` checks the emulator's screenshot (what the beam drew), not video RAM: every ball's 4×6 pixels must show its pen colour. Shared driver in `tests/amspirit.py`. Run the tests one at a time; each needs port 6128 free. Edits to a `.h.s` need `make clean && make` first (the Makefile does not track header dependencies).

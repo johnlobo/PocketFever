@@ -9,7 +9,8 @@
 Boots the real PocketFever.dsk in AmSpiriT-Lite (headless, tools/amspirit-lite),
 waits for the main loop, then drives the running game from a server-side Lua
 script: it writes ball positions/velocities straight into the entity pool and
-samples every ball once per frame while the game's own physics + collision run.
+samples every ball every other frame (wait_frames(1) advances two) while the
+game's own physics + collision run.
 
 Two parts:
   * edge scenarios: two pre-overlapping balls pinned against each cushion, so
@@ -17,12 +18,12 @@ Two parts:
     the fix this produced x=255 (then a teleport to the right cushion), x=157,
     y=67 (a ball living on the HUD's last line) and y=195.
   * stress rounds: seeded random positions (half of them on a cushion) and
-    velocities, checked every frame, to show the fix holds beyond the 4 cases.
+    velocities, checked every other frame, to show the fix holds beyond the 4 cases.
 
-Known limit: sampling is once per frame, not right after sys_collision_update.
+Known limit: sampling is every other frame, not right after sys_collision_update.
 On the old code the right/bottom cases (x=157, y=195) were clamped back by the
-next physics pass, so they are caught only while the game loop finishes inside
-one frame. Left/top/teleport and the settle positions fail the old code
+next physics pass, so a one-frame transient like that is caught only about
+half the time. Left/top/teleport and the settle positions fail the old code
 regardless of timing.
 
 The boot waits for the pool header to read count=10, size=ENTITY_SIZE, so a
@@ -109,7 +110,8 @@ local function settle_and_check(name)
     wait_frames(1)
   end
   -- Nudge-only settling can go on for ~11 frames after velocities hit zero:
-  -- wait for 3 identical frames (max 40) before judging overlap and jitter.
+  -- wait for 3 identical samples (every other frame, max ~80 frames) before
+  -- judging overlap and jitter.
   local r, same = cpc.getRam(ARR, N * SZ), 0
   for f = 1, 40 do
     wait_frames(1)
@@ -118,7 +120,7 @@ local function settle_and_check(name)
     r = now
     if same >= 3 then break end
   end
-  if not still(r) then fail(name .. ": balls still moving after 200 frames") end
+  if not still(r) then fail(name .. ": balls still moving after ~400 frames") end
   local o = overlaps(r)
   if o ~= "" then fail(name .. ": balls at rest overlapping: " .. o) end
   wait_frames(10)

@@ -1,2 +1,2 @@
-;; Random test shot: SPACE fires the cue ball in a random direction.
+;; Test shot: hold SPACE to charge, release to fire in a random direction.
 .module game_shot

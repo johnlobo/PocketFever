@@ -26,8 +26,17 @@ S_SMALL_NUMBERS_HEIGHT = 5
 ;; physics, white collision). Debug only; toggling needs make clean && make.
 PROFILE_RASTER = 0
 
-;; game/shot.s random test shot: power is a random multiple of the 0.25
-;; line/frame direction step, i.e. 2..4 raster lines per frame. The top end
+;; game/shot.s test shot: hold SPACE to charge, release to fire in a random
+;; direction. Power is a multiple of the 0.25 line/frame direction step:
+;; MIN on a tap, +1 every SHOT_CHARGE_STEP frames held, capped at MIN+SPAN,
+;; i.e. 2..4 raster lines per frame, full on the 49th held frame (~1 s). The top end
 ;; stays under BALL_HEIGHT_PX so no ball can jump through another in a frame.
-SHOT_POWER_MIN  = 8
-SHOT_POWER_SPAN = 8
+SHOT_POWER_MIN   = 8
+SHOT_POWER_SPAN  = 8
+SHOT_CHARGE_STEP = 6
+
+;; HUD charge bar: one 2-byte segment per power level, SHOT_POWER_SPAN+1 max.
+SHOT_BAR_X_BYTES = 2
+SHOT_BAR_Y_PX    = 40
+SHOT_BAR_HEIGHT  = 6
+SHOT_BAR_PEN     = 15

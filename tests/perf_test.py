@@ -12,7 +12,8 @@ Scenarios:
   chaos   all 10 balls moving in seeded random directions (up to 3 px/frame)
 
 Budget: loops/frames >= 0.98 in every scenario (one frame of slack for where
-the measurement window starts inside a loop iteration).
+the measurement window starts inside a loop iteration). Before this was
+corrected for wait_frames(n) = n+1 frames, the report read 1.01-1.02.
 
 Usage: python3 tests/perf_test.py [--keep-emulator]
 """
@@ -34,9 +35,10 @@ local function place(slot, x, y, vx, vy)
   cpc.setRam(ARR + slot * SZ + 1, string.char(0, x, 0, y, vxl, vxh, vyl, vyh))
 end
 local function loops() local r = cpc.getRam(COUNTER, 2) return r:byte(1) + 256 * r:byte(2) end
+-- wait_frames(n) advances n+1 frames (tests/amspirit.py), so this spans exactly `frames`.
 local function measure(name, frames)
   local before = loops()
-  wait_frames(frames)
+  wait_frames(frames - 1)
   local done = (loops() - before) %% 65536
   print(string.format("RESULT %%s %%d %%d", name, done, frames))
 end

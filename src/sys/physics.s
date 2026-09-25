@@ -8,7 +8,7 @@
 .include "globals.inc"
 .include "sys/physics.h.s"
 
-PHYS_FRICTION = 0x0008
+PHYS_FRICTION = 0x0006
 
 .area _CODE
 
