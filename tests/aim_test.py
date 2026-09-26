@@ -157,7 +157,8 @@ def main():
         sy = (y1 - y0) / config("TABLE_HEIGHT_PX")
         points = dash_points(index, cue_x, cue_y,
                              config("AIM_STEP_MULT"), config("AIM_DASH_COUNT"),
-                             config("AIM_DASH_PX"), config("BALL_WIDTH_PX"), config("BALL_HEIGHT_PX"))
+                             config("AIM_DASH_PX"), config("BALL_WIDTH_PX"), config("BALL_HEIGHT_PX"),
+                             config("TABLE_WIDTH_PX"), config("TABLE_Y_PX"), config("TABLE_HEIGHT_PX"))
         if not points:
             failures.append("aim_model says direction 8 produces zero dashes from the boot cue position")
         else:
@@ -184,7 +185,7 @@ def main():
         # skips settled balls) exists for: the line no longer has to stop
         # before reaching a ball, since nothing else will touch that ball's
         # pixels while it's settled and the line is up.
-        ball_x, ball_y = 120, 152   # covers dash 2 of direction 8 (121,153)-ish
+        ball_x, ball_y = 140, 166   # covers dash 4 of direction 8, (143,169)-ish (tools/aim_model.py)
         wait_lua(f"cpc.setRam({sym['gaim_index']}, string.char(0))\nwait_frames(1)\n"
                 f"cpc.setRam({sym['entity_array']} + 3 * {ENTITY_SIZE} + 1, "
                 f"string.char(0, {ball_x}, 0, {ball_y}, 0, 0, 0, 0))\n"
@@ -205,6 +206,77 @@ def main():
             diffs = [(x, y) for y in range(h3) for x in range(w3) if reference[y][x] != restored[y][x]]
             failures.append(f"ball-crossing: {len(diffs)} pixel(s) did not restore after the "
                             f"line crossed the ball and moved away, e.g. {diffs[:5]}")
+
+        # --- 2c/2d. the line bounces off a cushion like a real launched ball
+        # ReflectAxis (aim.s) folds a position with either a POSITIVE overrun
+        # (m > span: mirror across the far wall) or a NEGATIVE one (m < 0:
+        # add one period first) -- two different branches in the Z80, so one
+        # bounce direction only proves one of them. Direction 13 bounces off
+        # the BOTTOM cushion (positive-overrun branch); direction 48 bounces
+        # off the TOP cushion (negative-wrap branch: an adversarial review of
+        # this diff traced the negative branch correct by hand but flagged
+        # that nothing actually exercised it on real hardware -- this closes
+        # that gap). Checks the SAME way section 2 does: every dash pixel,
+        # including the ones past the bounce, must show the aim colour in a
+        # real screenshot, so a wrong fold shows up as a dash landing on
+        # plain felt past the cushion.
+        def check_bounce(index, rising):
+            # Near a bounce apex, consecutive dashes can land close enough
+            # that their boxes overlap by a row/column of game pixels --
+            # expected for an almost-vertical/horizontal direction whose
+            # per-dash Y (or X) progress naturally shrinks approaching the
+            # reflection point, same as a real trajectory slowing into a
+            # cushion. XOR onto an overlapped game pixel TWICE cancels back
+            # to felt colour there, which is correct XOR arithmetic, not
+            # damage -- reversibility (the actual invariant) never depended
+            # on every dash pixel individually showing the aim colour, only
+            # on draw and its matching erase applying the identical pattern
+            # (they do: both come from the same gaim_draw_line(index, cue)).
+            # So the real check is XOR PARITY per covered game pixel (odd
+            # count -> aim colour, even -> back to whatever was under it),
+            # not "every dash pixel must show aim colour" -- section 2's
+            # single straight-line check gets away with the simpler version
+            # only because its dashes never overlap each other.
+            wait_lua(f"cpc.setRam({sym['gaim_index']}, string.char({index}))\nwait_frames(1)\n")
+            w4, h4, rows4 = screenshot()
+            x0b, y0b, x1b, y1b = felt_box(rows4, palette[felt_pen])
+            sxb = (x1b - x0b) / config("TABLE_WIDTH_PX")
+            syb = (y1b - y0b) / config("TABLE_HEIGHT_PX")
+            points = dash_points(index, cue_x, cue_y,
+                                 config("AIM_STEP_MULT"), config("AIM_DASH_COUNT"),
+                                 config("AIM_DASH_PX"), config("BALL_WIDTH_PX"), config("BALL_HEIGHT_PX"),
+                                 config("TABLE_WIDTH_PX"), config("TABLE_Y_PX"), config("TABLE_HEIGHT_PX"))
+            ys = [y for _, y in points]
+            extreme = max(ys) if rising else min(ys)
+            if not (len(ys) == config("AIM_DASH_COUNT") and extreme in ys[:-1]
+                   and (ys[-1] < extreme if rising else ys[-1] > extreme)):
+                failures.append(f"direction {index}: aim_model.py's own points {points} don't "
+                                f"show a bounce -- test picked a direction/cue position that no "
+                                f"longer bounces, fix the test")
+                return
+            coverage = {}
+            for dash_x, dash_y in points:
+                left = dash_x & ~1
+                for dx in range(config("AIM_DASH_PX")):
+                    for dy in range(config("AIM_DASH_PX")):
+                        key = (left + dx, dash_y + dy)
+                        coverage[key] = coverage.get(key, 0) + 1
+            wrong = 0
+            for (gx, gy), count in coverage.items():
+                px = int(x0b + (gx + 0.5) * sxb)
+                py = int(y0b + (gy - config("TABLE_Y_PX") + 0.5) * syb)
+                is_felt = nearest_pen(rows4[py][px], palette) == felt_pen
+                expect_felt = (count % 2 == 0)
+                if is_felt != expect_felt:
+                    wrong += 1
+            if wrong:
+                failures.append(f"direction {index}: {wrong} game pixel(s) don't match the "
+                                f"expected XOR parity (felt vs aim colour) across all "
+                                f"{config('AIM_DASH_COUNT')} dashes, including past the bounce")
+
+        check_bounce(13, rising=True)    # bottom cushion: ReflectAxis's positive-overrun fold
+        check_bounce(48, rising=False)   # top cushion: ReflectAxis's negative-wrap fold
+        wait_lua(f"cpc.setRam({sym['gaim_index']}, string.char(0))\nwait_frames(1)\n")
 
         # --- 3 & 4. hides while moving, reappears at the new position -------
         # Direction 0 (pure +x, toward the far-off left... rather, +x is
@@ -263,7 +335,8 @@ def main():
         # and gaim_index stay untouched would pass "unchanged" and never get
         # re-erased/redrawn -- a permanent stray XOR mark wherever a nudge
         # crossed a shown dash. Reproduced with three balls placed already
-        # OVERLAPPING (x=50,47,44 -- each pair overlaps by 1px), all v=0 and
+        # OVERLAPPING (x=50,45,40 -- each pair overlaps by 1px, spacing =
+        # BALL_WIDTH_PX-1), all v=0 and
         # staying v=0 for every single frame of the whole settle (confirmed
         # by hand: this needs genuine overlap-at-placement, not a moving
         # striker, or the striking ball's own nonzero velocity gets caught
@@ -285,7 +358,7 @@ def main():
             f"  cpc.setRam(ARR2 + slot * SZ2 + 1, string.char(0, x, 0, y, vxl, vxh, vyl, vyh))\n"
             f"  cpc.setRam(ARR2 + slot * SZ2 + 13, string.char(2, 0))\n"
             f"end\n"
-            f"place(1, 50, 190, 0, 0)\nplace(2, 47, 190, 0, 0)\nplace(3, 44, 190, 0, 0)\n"
+            f"place(1, 50, 190, 0, 0)\nplace(2, 45, 190, 0, 0)\nplace(3, 40, 190, 0, 0)\n"
             f"wait_frames(0)\n"    # let the game's own loop see the new placement before sampling
             f"local function state()\n"
             f"  local moving, dirty = false, false\n"

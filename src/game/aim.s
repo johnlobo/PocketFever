@@ -289,6 +289,43 @@ gtf_below_h1:
     ld a, #AIM_TURN_T0
     ret
 
+;; Folds a signed 16-bit pixel position into [_lo, _lo+_span] by mirror
+;; reflection (a triangle wave), the same "clamp position, negate that
+;; axis's velocity" rule sys/physics.s applies at a cushion, re-expressed as
+;; a pure function of position instead of a stepped simulation. Assumes (and
+;; tools/aim_model.py's check_single_wrap_margin() proves for these
+;; constants) that HL - _lo never lands outside (-_period, _period), so a
+;; single conditional add folds a negative value into range and a single
+;; conditional subtract-from-period mirrors anything past the far wall --
+;; never more than one of each, never a general modulo loop.
+;; Input: HL = signed pixel position
+;; Output: A = folded pixel position, always in [_lo, _lo+_span]
+;; Modified: AF, DE, HL
+.macro ReflectAxis _lo, _span, _period, ?skip_wrap, ?past_mid, ?done
+    ld de, #(-(_lo)) & 0xFFFF
+    add hl, de                    ;; HL = m = position - _lo
+    bit 7, h
+    jr z, skip_wrap
+    ld de, #(_period)
+    add hl, de                    ;; m was negative: fold up by one period
+skip_wrap:
+    ld a, h
+    or a
+    jr nz, past_mid                ;; h!=0 => m > 255 >= _span: past the midpoint
+    ld a, l
+    cp #(_span)+1
+    jr nc, past_mid                ;; m > _span: past the midpoint
+    jr done                        ;; 0 <= m <= _span: keep m as-is
+past_mid:
+    ex de, hl
+    ld hl, #(_period)
+    or a
+    sbc hl, de                     ;; HL = _period - m: mirror across the far wall
+done:
+    ld a, l
+    add a, #(_lo)                  ;; final = _lo + folded m
+.endm
+
 ;;-----------------------------------------------------------------
 ;;
 ;; gaim_draw_line
@@ -297,7 +334,10 @@ gtf_below_h1:
 ;;  dashes. Pure function of its inputs and the current ball layout: the
 ;;  same index/cue position always produces the same dashes, which is what
 ;;  lets a later call with the same stored inputs erase exactly what an
-;;  earlier call drew (see game_aim_update's timing invariant).
+;;  earlier call drew (see game_aim_update's timing invariant). Since V.016
+;;  the line no longer stops at the felt edge -- it bounces, each axis
+;;  reflecting independently off its own legal range (ReflectAxis above) --
+;;  so it always places exactly AIM_DASH_COUNT dashes.
 ;;  Input: D = direction index (0-63), B = cue top-left x (px), C = cue top-left y (px)
 ;;  Output:
 ;;  Modified: AF, BC, DE, HL, IX, IY
@@ -345,24 +385,43 @@ gdl_step:
     call gdl_scale_add
     ld (gdl_accy), hl
 
-    ;; Candidate dash top-left, pixels. Signed high byte of a running 8.8
-    ;; accumulator plus an unsigned pixel base is a plain 8-bit add; both
-    ;; operands and the true (unwrapped) result stay within -128..255 for
-    ;; every legal cue position and every direction at these constants
-    ;; (checked by tools/aim_model.py's safety-margin report), so the
-    ;; wrapped byte always compares the same way an unwrapped one would.
+    ;; Dash CENTER on each axis: sign-extend the accumulator's integer pixel
+    ;; offset (its high byte) to 16 bits, add the cue center's pixel
+    ;; coordinate (zero-extended), then fold the result into the ball
+    ;; center's legal range with a mirror reflection -- the line bounces off
+    ;; a cushion the way sys/physics.s bounces the real ball, instead of
+    ;; stopping at the felt edge. tools/aim_model.py's reflect() is the
+    ;; reference; its check_single_wrap_margin() proves the offset here
+    ;; never needs more than the ONE wrap ReflectAxis performs.
     ld a, (gdl_accx+1)
-    ld hl, (gdl_cx)              ;; L = gdl_cx, H = gdl_cy (declared adjacent)
-    add a, l
+    ld l, a
+    ld h, #0
+    bit 7, l
+    jr z, gdl_x_ext_ok
+    ld h, #0xFF
+gdl_x_ext_ok:
+    ld a, (gdl_cx)
+    ld e, a
+    ld d, #0
+    add hl, de                   ;; HL = signed pixel position, x axis
+    ReflectAxis AIM_X_LO, AIM_X_SPAN, AIM_X_PERIOD
     sub #AIM_DASH_PX/2
     ld b, a                      ;; B = dash left x
+
     ld a, (gdl_accy+1)
-    add a, h
+    ld l, a
+    ld h, #0
+    bit 7, l
+    jr z, gdl_y_ext_ok
+    ld h, #0xFF
+gdl_y_ext_ok:
+    ld a, (gdl_cy)
+    ld e, a
+    ld d, #0
+    add hl, de                   ;; HL = signed pixel position, y axis
+    ReflectAxis AIM_Y_LO, AIM_Y_SPAN, AIM_Y_PERIOD
     sub #AIM_DASH_PX/2
     ld c, a                      ;; C = dash top y
-
-    call gdl_in_bounds
-    ret z                        ;; out of the felt: stop the whole line here
 
     push bc
     ld a, (gaim_pattern)
@@ -404,23 +463,6 @@ gdl_scale_loop:
     add hl, de
     djnz gdl_scale_loop
     pop bc
-    ret
-
-;; Z if the (B,C) top-left pixel would put the AIM_DASH_PX square outside
-;; the felt; NZ if it fits inside.
-gdl_in_bounds:
-    ld a, b
-    cp #TABLE_WIDTH_PX-AIM_DASH_PX+1
-    jr nc, gdl_ib_out
-    ld a, c
-    cp #TABLE_Y_PX
-    jr c, gdl_ib_out
-    cp #TABLE_Y_PX+TABLE_HEIGHT_PX-AIM_DASH_PX+1
-    jr nc, gdl_ib_out
-    or #1
-    ret
-gdl_ib_out:
-    xor a
     ret
 
 ;; Ball-overlap stopping was removed: the line only ever shows while

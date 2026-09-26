@@ -1,15 +1,15 @@
 ;; Project-level parameters consumed by reusable systems.
 
-;; Felt 160x132 (2:1 on CRT 4:3), bottom-aligned. HUD 68 px above. Balls 4x6.
+;; Felt 160x132 (2:1 on CRT 4:3), bottom-aligned. HUD 68 px above. Balls 6x6.
 TABLE_WIDTH_PX  = 160
 TABLE_HEIGHT_PX = 132
 TABLE_X_BYTES   = 0
 TABLE_Y_PX      = 68
 HUD_Y_PX        = 0
 HUD_HEIGHT_PX   = 68
-BALL_WIDTH_PX    = 4
+BALL_WIDTH_PX    = 6
 BALL_HEIGHT_PX   = 6
-BALL_WIDTH_BYTES = 2
+BALL_WIDTH_BYTES = 3
 MAX_ENTITIES     = 10
 FELT_PEN         = 10
 FELT_WIDTH_BYTES = 80
@@ -42,16 +42,38 @@ SHOT_BAR_HEIGHT  = 6
 SHOT_BAR_PEN     = 15
 
 ;; game/aim.s XOR trajectory line. Dashes step out from the cue ball's CENTER
-;; along the aimed direction (src/game/shot_table.s), stopping only at the
-;; felt edge -- crossing over a ball is safe, since sys/entity.s skips
-;; erase/draw for any settled ball, and the line is only ever shown while
-;; every ball is settled (gaim_all_still). AIM_STEP_MULT/AIM_DASH_COUNT just
-;; set the dash spacing and how far the guide reaches; tools/aim_model.py
-;; sizes them relative to the felt, no longer relative to any ball's box.
-AIM_STEP_MULT    = 40
-AIM_DASH_COUNT   = 5
+;; along the aimed direction (src/game/shot_table.s). Since V.016 the line
+;; no longer stops at the felt edge: each axis of the running center
+;; position bounces off its own legal range independently (a triangle-wave
+;; reflection, gaim_reflect_axis), the same clamp-and-negate cushion rule
+;; sys/physics.s applies to a real launched ball, so the guide shows where
+;; the shot will actually go including rebounds. Crossing over a ball is
+;; still safe, since sys/entity.s skips erase/draw for any settled ball, and
+;; the line is only ever shown while every ball is settled (gaim_all_still).
+;; AIM_STEP_MULT/AIM_DASH_COUNT set the dash spacing and total reach (their
+;; product is the arc length in raw 8.8 direction-vector units, +50% over
+;; V.015's 40*5=200); tools/aim_model.py sizes them and checks the running
+;; accumulator never overflows 16 bits for shot_table.s's widest direction.
+AIM_STEP_MULT    = 50
+AIM_DASH_COUNT   = 6
 AIM_DASH_PX      = 2
 AIM_PEN          = 15
+;; Legal range of the cue ball's CENTER on each axis -- same clearance from
+;; the felt edge as TABLE_X_MAX/TABLE_Y_MAX (corner-based), re-expressed
+;; around the center gaim_draw_line actually steps from. SPAN/PERIOD are the
+;; triangle-wave reflection's span and period (gaim_reflect_axis, aim.s);
+;; tools/aim_model.py's reflect() is the reference and asserts the running
+;; per-dash offset never exceeds one PERIOD, which is what lets the Z80
+;; routine fold with a single conditional add/subtract instead of a general
+;; modulo loop.
+AIM_X_LO     = BALL_WIDTH_PX/2
+AIM_X_HI     = TABLE_WIDTH_PX-BALL_WIDTH_PX/2
+AIM_X_SPAN   = AIM_X_HI-AIM_X_LO
+AIM_X_PERIOD = 2*AIM_X_SPAN
+AIM_Y_LO     = TABLE_Y_PX+BALL_HEIGHT_PX/2
+AIM_Y_HI     = TABLE_Y_PX+TABLE_HEIGHT_PX-BALL_HEIGHT_PX/2
+AIM_Y_SPAN   = AIM_Y_HI-AIM_Y_LO
+AIM_Y_PERIOD = 2*AIM_Y_SPAN
 ;; Frames per direction step while a cursor key is held, staged: starts slow
 ;; (precise single-step aiming) and ramps to fast the longer the key stays
 ;; held, so a 64-step revolution doesn't take forever without sacrificing

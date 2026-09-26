@@ -143,20 +143,28 @@ local function expect(name, r, slot, x, y)
   end
 end
 
--- slot, x, y, vx, vy (8.8)[, x frac, y frac]. Pairs sit far apart; the lower slot is IX.
+-- slot, x, y, vx, vy (8.8)[, x frac, y frac]. Pairs sit far apart; the lower
+-- slot is IX. Every offset is BW/BH-relative (a fixed 2px overlap, however
+-- big the ball is) so this scenario table doesn't need hand-rederiving by
+-- pixel every time BALL_WIDTH_PX/HEIGHT_PX changes -- a literal absolute
+-- offset here would silently change the real overlap amount whenever the
+-- ball size does (found the hard way going from 4x6 to 6x8: a fixed
+-- 2px-apart pair went from a 2px overlap to a 4px one, and every settle
+-- position shifted by the difference).
+local BW, BH = %(bw)d, %(bh)d
 local edges = {
-  {0, 0, 100, 0, 0}, {1, 2, 101, 0, 0},          -- left cushion: IX pinned at x=0
-  {2, 153, 100, 0, 0}, {3, XMAX, 101, 0, 0},     -- right cushion: IY pinned at x=XMAX
-  {4, 80, YMIN, 0, 0}, {5, 82, YMIN + 5, 0, 0},  -- top cushion: IX pinned at y=YMIN
-  {6, 80, YMAX - 4, 0, 0}, {7, 81, YMAX, 0, 0},  -- bottom cushion: IY pinned at y=YMAX
-  {8, 40, 130, 0, 0}, {9, 42, 131, 0, 0},        -- mid table: both move
+  {0, 0, 100, 0, 0}, {1, BW - 2, 101, 0, 0},               -- left cushion: IX pinned at x=0
+  {2, XMAX - (BW - 2), 100, 0, 0}, {3, XMAX, 101, 0, 0},   -- right cushion: IY pinned at x=XMAX
+  {4, 80, YMIN, 0, 0}, {5, 82, YMIN + (BH - 2), 0, 0},     -- top cushion: IX pinned at y=YMIN
+  {6, 80, YMAX - (BH - 2), 0, 0}, {7, 81, YMAX, 0, 0},     -- bottom cushion: IY pinned at y=YMAX
+  {8, 40, 130, 0, 0}, {9, 40 + (BW - 2), 131, 0, 0},       -- mid table: both move
 }
 local r = run("edges", edges, 12)
-expect("left", r, 0, 0, 100)         expect("left", r, 1, 4, 101)
-expect("right", r, 2, 152, 100)      expect("right", r, 3, XMAX, 101)
-expect("top", r, 4, 80, YMIN)        expect("top", r, 5, 82, YMIN + 6)
-expect("bottom", r, 6, 80, YMAX - 6) expect("bottom", r, 7, 81, YMAX)
-expect("mid", r, 8, 39, 130)         expect("mid", r, 9, 43, 131)
+expect("left", r, 0, 0, 100)                 expect("left", r, 1, BW, 101)
+expect("right", r, 2, XMAX - BW, 100)        expect("right", r, 3, XMAX, 101)
+expect("top", r, 4, 80, YMIN)                expect("top", r, 5, 82, YMIN + BH)
+expect("bottom", r, 6, 80, YMAX - BH)        expect("bottom", r, 7, 81, YMAX)
+expect("mid", r, 8, 39, 130)                 expect("mid", r, 9, 40 + (BW - 2) + 1, 131)
 
 -- Left-cushion ball hit by a ball moving straight down: swap hands it vx=0,
 -- which is exactly what turned x=255 into a teleport to the right cushion.
@@ -170,14 +178,16 @@ if tx > 4 then fail("teleport: left-cushion ball ended at x=" .. tx) end
 
 -- Overlap per axis is size - |distance|. Old code computed ix+size-iy, which
 -- for IY left of / above IX is size+distance and flipped the chosen axis.
+-- Both pairs keep a fixed 1px overlap on the axis under test (distance =
+-- BW-1 / BH-1) regardless of ball size, same as the "edges" table above.
 r = run("overlap axis", {
-  {0, 10, 130, 0, 0}, {1, 7, 131, 0, 0},      -- IY left of IX: x overlap 1 < y 5, split on x
-  {2, 60, 140, 0, 0}, {3, 62, 135, 0, 0},     -- IY above IX: y overlap 1 < x 2, split on y
+  {0, 10, 130, 0, 0}, {1, 10 - (BW - 1), 131, 0, 0},   -- IY left of IX: x overlap 1 < y overlap, split on x
+  {2, 60, 140, 0, 0}, {3, 62, 140 - (BH - 1), 0, 0},   -- IY above IX: y overlap 1 < x overlap, split on y
   {4, 20, 190, 0, 0}, {5, 60, 190, 0, 0}, {6, 100, 190, 0, 0},
   {7, 140, 190, 0, 0}, {8, 20, 80, 0, 0}, {9, 140, 80, 0, 0},
 }, 8)
-expect("iy left", r, 0, 11, 130)     expect("iy left", r, 1, 6, 131)
-expect("iy above", r, 2, 60, 141)    expect("iy above", r, 3, 62, 134)
+expect("iy left", r, 0, 11, 130)     expect("iy left", r, 1, 10 - (BW - 1) - 1, 131)
+expect("iy above", r, 2, 60, 141)    expect("iy above", r, 3, 62, 140 - (BH - 1) - 1)
 
 -- Only pairs with a changed ball are checked: two moving balls must still
 -- bounce off each other, and a moving ball must still hit a still one.
@@ -236,11 +246,16 @@ settle_and_check("zeroed by swap")
 -- A later ball pushed into an earlier one that already had its turn.
 run("pushed back", with_parked({{0, 40, 100, 0, 16}, {1, 48, 100, -16, 0, 4, 0}, {2, 44, 100, 0, 0}}), 3)
 settle_and_check("pushed back")
--- Fast ball into a pair near the top-right corner.
-run("corner wedge", with_parked({{0, 155, YMIN, 0, 0}, {1, 153, YMIN + 10, 0, 0}, {2, 130, YMIN + 4, 816, 0}}), 30)
+-- Fast ball into a pair near the top-right corner. Placements are XMAX-relative
+-- (not a literal like "155") so they stay inside the felt regardless of
+-- BALL_WIDTH_PX -- a fixed literal here silently went off the felt (x=155 >
+-- XMAX=154) the moment the ball got wider than the 4px it was tuned for.
+run("corner wedge", with_parked({{0, XMAX - 1, YMIN, 0, 0}, {1, XMAX - 3, YMIN + 10, 0, 0},
+                                 {2, 130, YMIN + 4, 816, 0}}), 30)
 settle_and_check("corner wedge")
 -- Ball squeezed between a cushion-pinned ball and another: must not ping-pong.
-run("squeeze", with_parked({{0, 155, YMIN, 0, 0}, {1, 154, YMIN + 5, 0, 0}, {2, 153, YMIN + 11, 0, 0}}), 3)
+run("squeeze", with_parked({{0, XMAX - 1, YMIN, 0, 0}, {1, XMAX - 2, YMIN + 5, 0, 0},
+                            {2, XMAX - 3, YMIN + 11, 0, 0}}), 3)
 settle_and_check("squeeze")
 
 local seed = %(seed)d

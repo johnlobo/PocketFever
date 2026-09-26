@@ -61,7 +61,7 @@ sys_entity_erase_all::
 ;;
 ;; sys_entity_draw_all
 ;;
-;;  Draws every live entity as a solid 4x6 mode-0 box.
+;;  Draws every live entity as a solid BALL_WIDTH_PXxBALL_HEIGHT_PX mode-0 box.
 ;;  Input:
 ;;  Output:
 ;;  Modified: AF, BC, DE, HL, IX
