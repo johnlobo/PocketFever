@@ -1,5 +1,5 @@
 ;; XOR trajectory guide for the cue ball. Cursor left/right rotate the aim
-;; direction (one of shot_table.s's 32 steps); a dashed line from the cue
+;; direction (one of shot_table.s's 64 steps); a dashed line from the cue
 ;; shows it. Shown only while every ball is at rest, since XOR draw/erase is
 ;; only lossless when nothing else redraws those pixels in between: the
 ;; ordinary ball erase/draw (sys/entity.s) is a direct felt overwrite, not
@@ -21,6 +21,8 @@
 gaim_index::      .db AIM_DEFAULT_INDEX  ;; public: game/shot.s reads this to fire
 gaim_shown::      .db 0
 gaim_turn_tick:   .db 0
+gaim_hold_frames: .db 0                 ;; frames a cursor key has been held continuously
+gaim_turn_dir:    .db 0                 ;; 0 none, 1 left, 2 right (last frame's), for ramp reset on reversal
 gaim_last_index:: .db 0
 gaim_last_cx::    .db 0                  ;; cue slot-0 top-left x/y when last (re)drawn
 gaim_last_cy::    .db 0
@@ -181,53 +183,110 @@ gaim_still_next:
     xor a
     ret
 
-;;  Reads cursor left/right, steps gaim_index by 1 every AIM_TURN_THROTTLE
-;;  held frames. If both are held, left wins (checked first).
+;;  Reads cursor left/right, steps gaim_index by 1 every N held frames, N
+;;  staged down (AIM_TURN_T0..T3) as the key stays held -- precise single
+;;  steps at first, fast spin if held (tools/turn_model.py). If both are
+;;  held, left wins (checked first). Switching direction without releasing
+;;  restarts the ramp (gaim_turn_dir), since that's a fresh adjustment, not
+;;  a continuation of the spin that was building up.
 ;;  Input:
 ;;  Output:
-;;  Modified: AF, HL
+;;  Modified: AF, BC, HL
 gaim_read_turn_keys:
     ld hl, #Key_CursorLeft
     call cpct_isKeyPressed_asm
-    jr nz, gaim_turn_left
+    jr nz, gaim_turn_want_left
     ld hl, #Key_CursorRight
     call cpct_isKeyPressed_asm
-    jr nz, gaim_turn_right
+    jr nz, gaim_turn_want_right
     xor a
     ld (gaim_turn_tick), a
+    ld (gaim_hold_frames), a
+    ld (gaim_turn_dir), a
     ret
-gaim_turn_left:
+gaim_turn_want_left:
+    ld a, #1
+    call gaim_turn_note_dir
     call gaim_turn_tick_or_return
     ret nc
     ld a, (gaim_index)
     dec a
-    and #31
+    and #63
     ld (gaim_index), a
     ret
-gaim_turn_right:
+gaim_turn_want_right:
+    ld a, #2
+    call gaim_turn_note_dir
     call gaim_turn_tick_or_return
     ret nc
     ld a, (gaim_index)
     inc a
-    and #31
+    and #63
     ld (gaim_index), a
     ret
 
-;; Advances the throttle tick. Carry SET = time to step (caller acts on it),
-;; carry CLEAR = not yet (caller's `ret nc` bails without touching the index).
+;; Input: A = 1 (left) or 2 (right), the direction about to be processed
+;; this frame. Resets the ramp if that differs from last frame's.
+;; Modified: AF
+gaim_turn_note_dir:
+    ld b, a
+    ld a, (gaim_turn_dir)
+    cp b
+    ld a, b
+    ld (gaim_turn_dir), a
+    ret z
+    xor a
+    ld (gaim_turn_tick), a
+    ld (gaim_hold_frames), a
+    ret
+
+;; Advances the hold counter (saturating so a very long hold can't wrap) and
+;; the throttle tick against the CURRENT hold length's throttle. Carry SET =
+;; time to step (caller acts on it), carry CLEAR = not yet (caller's `ret nc`
+;; bails without touching the index).
+;; Modified: AF, BC, HL
 gaim_turn_tick_or_return:
+    ld hl, #gaim_hold_frames
+    ld a, (hl)
+    cp #AIM_TURN_H3
+    jr nc, gttor_hold_capped
+    inc (hl)
+gttor_hold_capped:
+    ld a, (hl)
+    call gaim_throttle_for
+    ld b, a
     ld hl, #gaim_turn_tick
     inc (hl)
     ld a, (hl)
-    cp #AIM_TURN_THROTTLE
-    jr c, gttor_not_yet     ;; tick < THROTTLE: cp already set carry, but that
-                            ;; means "not yet" here -- make the CALLEE contract
-                            ;; explicit instead of leaning on cp's own sense
+    cp b
+    jr c, gttor_not_yet
     ld (hl), #0
     scf
     ret
 gttor_not_yet:
     or a                    ;; clear carry (Z from this is unused)
+    ret
+
+;; Input: A = frames continuously held (0..AIM_TURN_H3)
+;; Output: A = throttle (frames per step) for that hold length
+;; Modified: AF
+gaim_throttle_for:
+    cp #AIM_TURN_H3
+    jr c, gtf_below_h3
+    ld a, #AIM_TURN_T3
+    ret
+gtf_below_h3:
+    cp #AIM_TURN_H2
+    jr c, gtf_below_h2
+    ld a, #AIM_TURN_T2
+    ret
+gtf_below_h2:
+    cp #AIM_TURN_H1
+    jr c, gtf_below_h1
+    ld a, #AIM_TURN_T1
+    ret
+gtf_below_h1:
+    ld a, #AIM_TURN_T0
     ret
 
 ;;-----------------------------------------------------------------
@@ -239,7 +298,7 @@ gttor_not_yet:
 ;;  same index/cue position always produces the same dashes, which is what
 ;;  lets a later call with the same stored inputs erase exactly what an
 ;;  earlier call drew (see game_aim_update's timing invariant).
-;;  Input: D = direction index (0-31), B = cue top-left x (px), C = cue top-left y (px)
+;;  Input: D = direction index (0-63), B = cue top-left x (px), C = cue top-left y (px)
 ;;  Output:
 ;;  Modified: AF, BC, DE, HL, IX, IY
 ;;

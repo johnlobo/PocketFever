@@ -57,9 +57,10 @@ def dash_points(index, cue_x, cue_y, balls, step_mult, dash_count, dash_px, ball
 def main():
     ball_w, ball_h = config("BALL_WIDTH_PX"), config("BALL_HEIGHT_PX")
     cue = (120, 131)   # game/table.s ball_cue
+    count = len(directions())
     for step_mult, dash_count, dash_px in ((16, 8, 2), (24, 6, 2), (40, 5, 2)):
         min_first, max_reach, blocked = 999, 0, 0
-        for index in range(32):
+        for index in range(count):
             points = dash_points(index, *cue, [cue], step_mult, dash_count, dash_px, ball_w, ball_h)
             if not points:
                 blocked += 1
@@ -70,7 +71,7 @@ def main():
             max_reach = max(max_reach, ((lx - cue[0]) ** 2 + (ly - cue[1]) ** 2) ** 0.5)
         print(f"step_mult={step_mult:3d} dash_count={dash_count} dash_px={dash_px}: "
               f"first dash >= {min_first:.1f}px from cue centre, furthest reach {max_reach:.1f}px, "
-              f"{blocked}/32 directions produce zero dashes (self-overlap)")
+              f"{blocked}/{count} directions produce zero dashes (self-overlap)")
 
 
 if __name__ == "__main__":

@@ -53,9 +53,19 @@ AIM_STEP_MULT    = 40
 AIM_DASH_COUNT   = 5
 AIM_DASH_PX      = 2
 AIM_PEN          = 15
-;; Frames per direction step while a cursor key is held (32 steps, so this
-;; many * 32 frames for a full turn).
-AIM_TURN_THROTTLE = 3
-;; Index into shot_directions (angle = index*360/32). 16 = 180 deg = left,
+;; Frames per direction step while a cursor key is held, staged: starts slow
+;; (precise single-step aiming) and ramps to fast the longer the key stays
+;; held, so a 64-step revolution doesn't take forever without sacrificing
+;; fine control at the start. Sized and verified with tools/turn_model.py;
+;; change there first. AIM_TURN_Hn = frames continuously held before that
+;; stage's throttle (AIM_TURN_Tn) applies; ascending, last one is the floor.
+AIM_TURN_T0 = 6              ;; 0-17 held frames:  1 step / 6 frames (~120 ms/step)
+AIM_TURN_H1 = 18
+AIM_TURN_T1 = 4              ;; 18-35:             1 step / 4 frames (~80 ms/step)
+AIM_TURN_H2 = 36
+AIM_TURN_T2 = 2              ;; 36-59:             1 step / 2 frames (~40 ms/step)
+AIM_TURN_H3 = 60
+AIM_TURN_T3 = 1              ;; 60+ (floor):       1 step / frame    (~20 ms/step)
+;; Index into shot_directions (angle = index*360/64). 32 = 180 deg = left,
 ;; toward the rack, since the cue starts at the right (game/table.s).
-AIM_DEFAULT_INDEX = 16
+AIM_DEFAULT_INDEX = 32

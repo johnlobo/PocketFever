@@ -12,7 +12,7 @@ Usage: python3 tools/gen_shot_table.py > src/game/shot_table.s
 """
 import math
 
-DIRECTIONS = 32
+DIRECTIONS = 64
 STEP = 64                 # 8.8: 0.25 raster lines per frame per power unit
 PIXEL_ASPECT = 2 * 132 / 160
 

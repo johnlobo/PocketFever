@@ -7,7 +7,8 @@ the test for the property the feature exists for: showing and hiding the
 line must never leave a mark on the felt.
 
 1. Round-trip (the critical check): hold Right for exactly one full 32-step
-   revolution (AIM_TURN_THROTTLE frames per step), so the game erases and
+   revolution (game/aim.s steps gaim_index once per held frame, staged --
+   see tests/turn_test.py for the ramp itself), so the game erases and
    redraws the line 32 times over 32 different directions and returns to the
    starting one. A screenshot taken before the turn and one taken after must
    be PIXEL-IDENTICAL. Any XOR corruption at ANY of the 32 intermediate
@@ -95,7 +96,6 @@ def main():
     args = parser.parse_args()
 
     sym = symbols("entity_array", "gaim_index", "gaim_shown", "gaim_last_cx", "gaim_last_cy")
-    throttle = config("AIM_TURN_THROTTLE")
     failures = []
     emulator = boot()
     try:
@@ -103,12 +103,14 @@ def main():
 
         # --- 1. round-trip across a full revolution -------------------------
         # Poll for "back to the starting direction, having moved away from it"
-        # rather than counting frames for 32 throttled steps: the exact
-        # frames-per-step ratio is an emulator/script-timing detail this test
-        # shouldn't have to pin down, and getting it wrong either cuts the
-        # revolution short (weaker test) or overshoots it (still fine, since
-        # a straight line drawn from any two full turns is just as sensitive
-        # to residue) -- polling the actual outcome is robust either way.
+        # rather than counting frames for a full revolution's worth of steps:
+        # the ramp (tests/turn_test.py) makes the frames-per-step ratio change
+        # over the hold anyway, and it's an emulator/script-timing detail this
+        # test shouldn't have to pin down regardless. Getting the hold
+        # duration wrong either cuts the revolution short (weaker test) or
+        # overshoots it (still fine, since a straight line drawn from any two
+        # full turns is just as sensitive to residue) -- polling the actual
+        # outcome is robust either way.
         w, h, before = screenshot()
         output = wait_lua(
             f"local idx = cpc.getRam({sym['gaim_index']}, 1):byte(1)\n"

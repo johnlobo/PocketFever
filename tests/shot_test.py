@@ -43,9 +43,11 @@ def phys_friction():
     text = (ROOT / "src" / "sys" / "physics.s").read_text()
     return int(re.search(r"^PHYS_FRICTION\s*=\s*(\d+)", text, re.M).group(1))
 
-# (hold frames, direction index): covers a short/long/mid charge and spreads
-# across quadrants, including index 0 (pure +x) and 24 (pure -y).
-CASES = [(3, 0), (27, 8), (60, 16), (3, 24), (27, 20), (60, 5)]
+# (hold frames, aim angle in degrees): covers a short/long/mid charge and
+# spreads across quadrants, including 0 deg (pure +x) and 270 deg (pure -y).
+# Angles, not raw table indices: the index for a given angle depends on how
+# many directions shot_table.s has (32 when this was written, 64 now).
+CASES_DEG = [(3, 0), (27, 90), (60, 180), (3, 270), (27, 225), (60, 56.25)]
 
 LUA = r"""
 local ARR, SZ, N, AIMIDX = %(array)d, %(size)d, %(count)d, %(aimidx)d
@@ -177,6 +179,7 @@ def main():
     low = config_value("SHOT_POWER_MIN")
     span, step = config_value("SHOT_POWER_SPAN"), config_value("SHOT_CHARGE_STEP")
     table = directions()
+    cases = [(hold, round(angle / 360 * len(table)) % len(table)) for hold, angle in CASES_DEG]
     sym = symbols("entity_array", "gaim_index")
     emulator = boot()
     try:
@@ -188,7 +191,7 @@ def main():
             "ymax": config_value("TABLE_Y_PX") + config_value("TABLE_HEIGHT_PX")
                     - config_value("BALL_HEIGHT_PX"),
             "bw": config_value("BALL_WIDTH_PX"), "bh": config_value("BALL_HEIGHT_PX"),
-            "cases": ", ".join(f"{{{hold}, {index}}}" for hold, index in CASES),
+            "cases": ", ".join(f"{{{hold}, {index}}}" for hold, index in cases),
         }
         if not post("/api/script?lang=lua", source, "text/plain")["ok"]:
             sys.exit("emulator refused the Lua script")
