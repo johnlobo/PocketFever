@@ -34,8 +34,11 @@ import time
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "tools"))
 from aim_model import config, dash_points  # noqa: E402
+from turn_model import DIRECTIONS, simulate  # noqa: E402
 
 from amspirit import BALL_COUNT, ENTITY_SIZE, boot, get, post, ram, screenshot, shutdown, symbols
+
+AIM_DEFAULT_INDEX = config("AIM_DEFAULT_INDEX")
 
 PRESS_RIGHT = "253, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255"  # Key_CursorRight=0x0200: row 0, bit 1
 RELEASE = "255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255"
@@ -95,39 +98,41 @@ def main():
     parser.add_argument("--keep-emulator", action="store_true")
     args = parser.parse_args()
 
-    sym = symbols("entity_array", "gaim_index", "gaim_shown", "gaim_last_cx", "gaim_last_cy")
+    sym = symbols("entity_array", "gaim_index", "gaim_shown", "gaim_last_cx", "gaim_last_cy",
+                 "game_loop_count")
     failures = []
     emulator = boot()
     try:
         wait_lua("wait_frames(9)")  # let the default-direction line settle
 
         # --- 1. round-trip across a full revolution -------------------------
-        # Poll for "back to the starting direction, having moved away from it"
-        # rather than counting frames for a full revolution's worth of steps:
-        # the ramp (tests/turn_test.py) makes the frames-per-step ratio change
-        # over the hold anyway, and it's an emulator/script-timing detail this
-        # test shouldn't have to pin down regardless. Getting the hold
-        # duration wrong either cuts the revolution short (weaker test) or
-        # overshoots it (still fine, since a straight line drawn from any two
-        # full turns is just as sensitive to residue) -- polling the actual
-        # outcome is robust either way.
+        # Hold for the EXACT number of frames a full revolution takes, per
+        # tools/turn_model.py's simulate() (bit-exact against the Z80, per
+        # tests/turn_test.py) -- rather than polling for "back to the
+        # starting value": once the ramp reaches its fastest stage it steps
+        # by up to 2 per wait_frames(1) sample (2 real frames advance, 2
+        # steps happen at throttle=1), so a poll landing on the wrong parity
+        # can skip straight over the target index and either time out or
+        # only stop several extra laps later by chance -- confirmed by hand,
+        # the polling version intermittently landed on idx=34 instead of the
+        # expected 32. Precomputing the frame count sidesteps parity
+        # entirely; game_loop_count is the clock, same as trace_hold in
+        # tests/turn_test.py, not the test's own wait_frames(1) call count.
         w, h, before = screenshot()
-        output = wait_lua(
-            f"local idx = cpc.getRam({sym['gaim_index']}, 1):byte(1)\n"
+        hold_frames = simulate(DIRECTIONS)
+        wait_lua(
+            f"local function loops() local r = cpc.getRam({sym['game_loop_count']}, 2) "
+            f"return r:byte(1) + 256 * r:byte(2) end\n"
             f"keyboard_write({PRESS_RIGHT})\n"
-            f"local moved = false\n"
-            f"for i = 1, 600 do\n"
-            f"  wait_frames(1)\n"
-            f"  local now = cpc.getRam({sym['gaim_index']}, 1):byte(1)\n"
-            f"  if now ~= idx then moved = true end\n"
-            f"  if moved and now == idx then break end\n"
-            f"  if i == 600 then print('TIMEOUT') end\n"
-            f"end\n"
+            f"local t0 = loops()\n"
+            f"while loops() - t0 < {hold_frames} do wait_frames(0) end\n"
             f"keyboard_write({RELEASE})\n"
             f"wait_frames(2)\n", timeout=120)
-        if "TIMEOUT" in output:
-            failures.append("held Right for 600 waits without completing a full revolution "
-                            "(gaim_index never returned to its starting value)")
+        final_idx = int(wait_lua(f"print(cpc.getRam({sym['gaim_index']}, 1):byte(1))").split()[-2])
+        if final_idx != AIM_DEFAULT_INDEX:
+            failures.append(f"held Right for {hold_frames} frames (turn_model.py's full "
+                            f"revolution), landed on index {final_idx}, expected back at "
+                            f"{AIM_DEFAULT_INDEX}")
         w2, h2, after = screenshot()
         if (w, h) != (w2, h2):
             failures.append(f"screenshot size changed: {w}x{h} -> {w2}x{h2}")
@@ -150,7 +155,7 @@ def main():
         x0, y0, x1, y1 = felt_box(rows, palette[felt_pen])
         sx = (x1 - x0) / config("TABLE_WIDTH_PX")
         sy = (y1 - y0) / config("TABLE_HEIGHT_PX")
-        points = dash_points(index, cue_x, cue_y, [(cue_x, cue_y)],
+        points = dash_points(index, cue_x, cue_y,
                              config("AIM_STEP_MULT"), config("AIM_DASH_COUNT"),
                              config("AIM_DASH_PX"), config("BALL_WIDTH_PX"), config("BALL_HEIGHT_PX"))
         if not points:
@@ -168,6 +173,38 @@ def main():
             if wrong:
                 failures.append(f"direction 8: {wrong} dash pixels still show the felt colour "
                                 f"(expected {len(points)} dashes x {config('AIM_DASH_PX')**2} px)")
+
+        # --- 2b. the line can cross a ball's box and erase clean afterward --
+        # By default the line's reach (AIM_DASH_COUNT*AIM_STEP_MULT) doesn't
+        # reach the rack from the boot cue position, so this places a ball
+        # squarely on one of direction 8's own dash positions to force a
+        # real crossing, then checks the draw+erase round-trip is still
+        # pixel-perfect INCLUDING the ball's own pixels -- the capability
+        # this whole redesign (gdl_overlaps_any_ball removed, sys/entity.s
+        # skips settled balls) exists for: the line no longer has to stop
+        # before reaching a ball, since nothing else will touch that ball's
+        # pixels while it's settled and the line is up.
+        ball_x, ball_y = 120, 152   # covers dash 2 of direction 8 (121,153)-ish
+        wait_lua(f"cpc.setRam({sym['gaim_index']}, string.char(0))\nwait_frames(1)\n"
+                f"cpc.setRam({sym['entity_array']} + 3 * {ENTITY_SIZE} + 1, "
+                f"string.char(0, {ball_x}, 0, {ball_y}, 0, 0, 0, 0))\n"
+                f"cpc.setRam({sym['entity_array']} + 3 * {ENTITY_SIZE} + 13, string.char(2, 0))\n"
+                f"wait_frames(2)\n")
+        w3, h3, reference = screenshot()   # ball alone, line pointed elsewhere (index 0)
+        wait_lua(f"cpc.setRam({sym['gaim_index']}, string.char(8))\nwait_frames(1)\n")
+        w3b, h3b, crossing = screenshot()
+        crossed = crossing != reference
+        wait_lua(f"cpc.setRam({sym['gaim_index']}, string.char(0))\nwait_frames(1)\n")
+        w3c, h3c, restored = screenshot()
+        if not crossed:
+            failures.append("ball-crossing: direction 8's line over the moved ball produced no "
+                            "visible change at all -- the dash may not actually be landing on it")
+        if (w3, h3) != (w3c, h3c):
+            failures.append(f"ball-crossing: screenshot size changed: {w3}x{h3} -> {w3c}x{h3c}")
+        elif restored != reference:
+            diffs = [(x, y) for y in range(h3) for x in range(w3) if reference[y][x] != restored[y][x]]
+            failures.append(f"ball-crossing: {len(diffs)} pixel(s) did not restore after the "
+                            f"line crossed the ball and moved away, e.g. {diffs[:5]}")
 
         # --- 3 & 4. hides while moving, reappears at the new position -------
         # Direction 0 (pure +x, toward the far-off left... rather, +x is

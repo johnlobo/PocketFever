@@ -42,13 +42,12 @@ SHOT_BAR_HEIGHT  = 6
 SHOT_BAR_PEN     = 15
 
 ;; game/aim.s XOR trajectory line. Dashes step out from the cue ball's CENTER
-;; along the aimed direction (src/game/shot_table.s). AIM_STEP_MULT and
-;; AIM_DASH_COUNT are picked by tools/aim_model.py so the first dash always
-;; clears the cue ball's own 4x6 box (>=5px in every direction) — the line
-;; must never overlap a ball's box, or that ball's ordinary per-frame
-;; erase/redraw (a direct felt overwrite, not XOR) would corrupt the XOR
-;; toggle and leave a permanent mark. The line stops at the dash before any
-;; overlap, so it also visually stops at the first ball in its way.
+;; along the aimed direction (src/game/shot_table.s), stopping only at the
+;; felt edge -- crossing over a ball is safe, since sys/entity.s skips
+;; erase/draw for any settled ball, and the line is only ever shown while
+;; every ball is settled (gaim_all_still). AIM_STEP_MULT/AIM_DASH_COUNT just
+;; set the dash spacing and how far the guide reaches; tools/aim_model.py
+;; sizes them relative to the felt, no longer relative to any ball's box.
 AIM_STEP_MULT    = 40
 AIM_DASH_COUNT   = 5
 AIM_DASH_PX      = 2

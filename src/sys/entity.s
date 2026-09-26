@@ -96,6 +96,7 @@ sys_entity_erase_one:
     ld a, e_cmps(ix)
     or a
     ret z
+    SkipIfSettled ix
     ld h, #FELT_PEN
     ld l, #FELT_PEN
     call sys_render_pen_solid_byte
@@ -108,6 +109,7 @@ sys_entity_draw_one:
     ld a, e_cmps(ix)
     or a
     ret z
+    SkipIfSettled ix
     ld h, e_color(ix)
     ld l, h
     call sys_render_pen_solid_byte

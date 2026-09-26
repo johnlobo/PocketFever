@@ -50,3 +50,20 @@ CF_PENDING_BIT   = 1
     or e_vy(_r)
     or e_vy+1(_r)
 .endm
+
+;; RETURNS (ret z) from the CALLER when this ball needs no erase/draw this
+;; frame: no velocity AND e_cflags clear -- neither physics nor a collision
+;; separation nudge has touched its position since the last pass, so
+;; e_old_x/e_old_y already equal the current x/y and erase(old)+draw(current)
+;; would just redraw it exactly where it already sits. Same "settled" test
+;; game/aim.s's gaim_all_still uses, and for the same reason: a nudge moves a
+;; resting ball WITHOUT ever setting velocity, so IsStill alone would miss it
+;; and skip a ball that actually needs redrawing at its new position.
+.macro SkipIfSettled _r, ?not_settled
+    IsStill _r
+    jr nz, not_settled
+    ld a, e_cflags(_r)
+    or a
+    ret z
+not_settled:
+.endm

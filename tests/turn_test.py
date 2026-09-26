@@ -5,21 +5,31 @@ Boots PocketFever.dsk in AmSpiriT-Lite and holds a cursor key through the
 real keyboard matrix, checking gaim_index's step timing against the exact
 model in tools/turn_model.py.
 
-Timing note: samples are keyed on game_loop_count deltas, NOT on counting
-Lua wait_frames(0) calls. wait_frames(0) was measured (2026-09-27) to
-sometimes advance zero real game-loop iterations -- confirmed by cross-
-checking against game_loop_count, which is authoritative (main.s increments
-it once per loop pass). A first attempt at this test, counting wait_frames(0)
-calls directly, saw step gaps inflated by a consistent amount and initially
-looked like a bug in the ramp; game_loop_count showed the ramp was exact all
-along. See CLAUDE.md's "Aiming and shot" section.
+Timing note, twice over:
+  * samples are keyed on game_loop_count deltas, NOT on counting Lua
+    wait_frames(0) calls -- wait_frames(0) does not reliably advance exactly
+    one real game-loop iteration per call (confirmed against game_loop_count,
+    the trustworthy clock: an early version of this test that counted its
+    own wait_frames(0) calls saw step gaps inflated by a consistent amount
+    and looked like a ramp bug, until game_loop_count showed the ramp was
+    exact all along).
+  * every check here verifies "does the OBSERVED index match what the model
+    predicts for the loop count I actually sampled", not "did I see a step
+    happen at the expected loop count" -- because a wait_frames(0) call can
+    also advance MORE than one real loop (compensating elsewhere), a fast-
+    stage sample can land past a step without the polling loop ever directly
+    observing that specific transition. Asking "is this state consistent
+    with the model" is robust to a skipped sample; asking "did I see this
+    exact transition" is not, and an earlier version of this test that
+    watched for transitions directly was intermittently flaky for exactly
+    this reason.
+See CLAUDE.md's "Aiming and shot" section.
 
 Checks:
-  * holding Right steps gaim_index at exactly the loop-count deltas
-    tools/turn_model.throttle_at predicts, across all four stages;
-  * a brief tap (shorter than AIM_TURN_H1) only ever uses the slowest
-    (most precise) throttle -- it must not accidentally ride a faster
-    stage from a stale hold counter;
+  * holding Right tracks tools/turn_model.steps_completed exactly, sampled
+    throughout all four ramp stages;
+  * a brief tap (shorter than AIM_TURN_H1) never exceeds one step -- it must
+    not accidentally ride a faster stage from a stale hold counter;
   * releasing and re-pressing restarts the ramp at the slow stage, not
     wherever the previous hold left off;
   * switching directions without releasing (left then right) also restarts
@@ -33,7 +43,7 @@ import sys
 import time
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "tools"))
-from turn_model import DIRECTIONS, throttle_at  # noqa: E402
+from turn_model import DIRECTIONS, steps_completed, throttle_at  # noqa: E402
 
 AIM_TURN_T0_EXPECT = throttle_at(0)   # slowest/first-stage throttle, i.e. AIM_TURN_T0
 
@@ -65,41 +75,71 @@ def wait_lua(source, timeout=120):
     sys.exit("Lua script did not finish in time")
 
 
-def parse_ints(text):
-    return [int(v) for v in text.split() if v.lstrip("-").isdigit()]
-
-
-def trace_hold(sym, press, hold_loops):
+def sample_hold(sym, press, hold_loops):
     """Holds `press` for `hold_loops` game-loop iterations (measured on
-    game_loop_count, not wait_frames), returns the list of loop-counts (since
-    the press started) at which gaim_index changed."""
+    game_loop_count), sampling (loop, gaim_index) every real loop the polling
+    happens to land on. Returns the list of (loop, idx) pairs -- NOT
+    necessarily one per loop, since wait_frames(0) can skip some."""
     out = wait_lua(
         f"local function loops() local r = cpc.getRam({sym['game_loop_count']}, 2) "
         f"return r:byte(1) + 256 * r:byte(2) end\n"
         f"keyboard_write({press})\n"
         f"local start = loops()\n"
-        f"local last = cpc.getRam({sym['gaim_index']}, 1):byte(1)\n"
         f"local out = {{}}\n"
         f"while loops() - start <= {hold_loops} do\n"
         f"  wait_frames(0)\n"
-        f"  local idx = cpc.getRam({sym['gaim_index']}, 1):byte(1)\n"
-        f"  if idx ~= last then out[#out + 1] = loops() - start; last = idx end\n"
+        f"  local d = loops() - start\n"
+        f"  out[#out + 1] = string.format('%d:%d', d, cpc.getRam({sym['gaim_index']}, 1):byte(1))\n"
         f"end\n"
         f"keyboard_write({RELEASE})\n"
         f"print(table.concat(out, ' '))\n")
-    return parse_ints(out)
+    pairs = []
+    for token in out.split():
+        if ":" not in token:
+            continue
+        loop, idx = token.split(":")
+        pairs.append((int(loop), int(idx)))
+    return pairs
 
 
-def expected_steps(hold_loops):
-    """Loop-counts at which a step should have happened, per turn_model."""
-    steps, held, tick = [], 0, 0
-    for loop in range(1, hold_loops + 1):
-        held += 1
-        tick += 1
-        if tick >= throttle_at(held):
-            tick = 0
-            steps.append(loop)
-    return steps
+def verify_ramp(samples, start_index, sign, label, failures, max_steps=None):
+    """Checks every (loop, idx) sample against the model, CALIBRATING for
+    keyboard-registration latency first rather than assuming it's zero.
+
+    How long a real keypress takes to become visible to the game's own poll
+    (cpct_isKeyPressed_asm, scanned once per frame off an interrupt) is a
+    host/emulator/platform detail, not something this test should pin an
+    exact value to -- measured as low as 1 loop and as high as 2 across runs
+    of this very test. What must stay exact is the RAMP ITSELF once it
+    starts: step gaps, which stage applies when. So: find the loop of the
+    first observed step, use it to infer the registration offset (that loop
+    minus the model's AIM_TURN_T0), then verify every sample against
+    steps_completed(loop - offset) instead of steps_completed(loop) raw.
+    Robust to missing samples (a skipped loop just isn't checked) and to
+    the registration offset itself; NOT robust to a wrong value once
+    calibrated, which is exactly the failure mode this exists to catch.
+    """
+    samples = sorted(samples)
+    first_step_loop = next((loop for loop, idx in samples if idx != start_index), None)
+    if first_step_loop is None:
+        failures.append(f"{label}: no step observed at all in {len(samples)} sample(s)")
+        return set()
+    offset = first_step_loop - AIM_TURN_T0_EXPECT
+    bad = []
+    seen_steps = set()
+    for loop, idx in samples:
+        done = steps_completed(loop - offset)
+        if max_steps is not None:
+            done = min(done, max_steps)
+        want = (start_index + sign * done) % DIRECTIONS
+        seen_steps.add(done)
+        if idx != want:
+            bad.append((loop, idx, want, done))
+    if bad:
+        failures.append(f"{label}: {len(bad)} sample(s) disagree with the model (registration "
+                        f"offset calibrated at {offset} loops), e.g. {bad[:5]} (loop, observed "
+                        f"idx, expected idx, steps so far)")
+    return seen_steps
 
 
 def main():
@@ -113,51 +153,45 @@ def main():
     emulator = boot()
     try:
         wait_lua("wait_frames(9)")
+        start_index = int(wait_lua(f"print(cpc.getRam({sym['gaim_index']}, 1):byte(1))").split()[-2])
 
         # --- 1. full ramp matches the model across all four stages ----------
         loops = 170
-        observed = trace_hold(sym, PRESS_RIGHT, loops)
-        expected = expected_steps(loops)
-        if observed != expected:
-            failures.append(f"ramp mismatch: observed {observed[:12]}..., "
-                            f"expected {expected[:12]}... (full lists differ)")
+        samples = sample_hold(sym, PRESS_RIGHT, loops)
+        seen_steps = verify_ramp(samples, start_index, +1, "ramp", failures)
+        expected_total = steps_completed(loops)
+        if max(seen_steps, default=-1) < expected_total - 1:
+            failures.append(f"ramp: samples only ever reached step count "
+                            f"{max(seen_steps, default=None)}, expected to reach close to "
+                            f"{expected_total} over {loops} loops -- looks like the hold "
+                            f"stopped advancing, not just a missed sample")
         else:
-            print(f"ramp matches turn_model.py exactly over {loops} loop iterations "
-                 f"({len(observed)} steps)")
+            print(f"ramp matches turn_model.py over {loops} loop iterations "
+                 f"({len(samples)} samples, {expected_total} steps expected)")
 
-        # --- 2. a brief tap never leaves the slowest stage -------------------
+        # --- 2. a brief tap never exceeds the slowest stage's single step ---
         wait_lua("wait_frames(2)")
-        tap_loops = 10   # well under AIM_TURN_H1
-        tap = trace_hold(sym, PRESS_RIGHT, tap_loops)
-        tap_expected = expected_steps(tap_loops)
-        if tap != tap_expected:
-            failures.append(f"tap ramp mismatch: observed {tap}, expected {tap_expected}")
+        start_index = int(wait_lua(f"print(cpc.getRam({sym['gaim_index']}, 1):byte(1))").split()[-2])
+        tap_loops = 10   # well under AIM_TURN_H1; steps_completed(10) with T0=6 is 1
+        tap = sample_hold(sym, PRESS_RIGHT, tap_loops)
+        verify_ramp(tap, start_index, +1, "tap", failures)
 
         # --- 3. release resets the ramp: re-holding starts slow again -------
         wait_lua("wait_frames(2)")
         long_hold = 60      # reach the fast stage
-        trace_hold(sym, PRESS_RIGHT, long_hold)
-        wait_lua("wait_frames(9)")  # release, let go stay released a while
-        second = trace_hold(sym, PRESS_RIGHT, 10)
-        second_expected = expected_steps(10)
-        if second != second_expected:
-            failures.append(f"post-release ramp mismatch: observed {second}, "
-                            f"expected {second_expected} -- release should restart the ramp, "
-                            f"not carry over the fast speed from the earlier long hold")
+        sample_hold(sym, PRESS_RIGHT, long_hold)
+        wait_lua("wait_frames(9)")  # release, let it stay released a while
+        start_index = int(wait_lua(f"print(cpc.getRam({sym['gaim_index']}, 1):byte(1))").split()[-2])
+        second = sample_hold(sym, PRESS_RIGHT, 10)
+        verify_ramp(second, start_index, +1, "post-release", failures)
 
         # --- 4. reversing direction without releasing also resets the ramp --
-        # Not compared against expected_steps() frame-for-frame: switching
-        # keys has the same ~1-2 frame keyboard-scan latency documented
-        # throughout this project (a poll doesn't see a new key state
-        # instantly), so the OLD direction's ramp -- already in its fastest,
-        # steps-every-loop stage here -- can legitimately produce one more
-        # step in the old direction right at the switch. That is input
-        # latency, not a bug; the real question is whether the NEW direction
-        # starts its own ramp from scratch (~AIM_TURN_T0 loops to its first
-        # step) rather than inheriting the fast stage (~1 loop). Classify each
-        # observed change by whether it incremented (right, +1 mod DIRECTIONS)
-        # or decremented (left, -1 mod DIRECTIONS) instead of trusting exact
-        # loop-delta bookkeeping across the switch.
+        # Checked by re-deriving the model FROM the moment of the switch,
+        # separately for the (short) tail of right-steps that can legitimately
+        # still land after the keypress due to the same keyboard-scan latency
+        # documented throughout this project, and for the left-steps that
+        # follow -- the left side must restart at AIM_TURN_T0, not inherit
+        # the fast stage the right-hold had reached.
         wait_lua("wait_frames(2)")
         out = wait_lua(
             f"local function idx() return cpc.getRam({sym['gaim_index']}, 1):byte(1) end\n"
@@ -166,38 +200,52 @@ def main():
             f"keyboard_write({PRESS_RIGHT})\n"
             f"local t0 = loops()\n"
             f"while loops() - t0 < 41 do wait_frames(0) end\n"   # ride into the fast stage
-            f"local out = {{}}\n"
             f"keyboard_write({PRESS_LEFT})\n"
             f"local t1 = loops()\n"
-            f"local last = idx()\n"
+            f"local start = idx()\n"
+            f"local out = {{}}\n"
             f"while loops() - t1 <= 12 do\n"
             f"  wait_frames(0)\n"
-            f"  local cur = idx()\n"
-            f"  if cur ~= last then\n"
-            f"    local dir = ((last - cur) % {DIRECTIONS} == 1) and 'L' or 'R'\n"
-            f"    out[#out + 1] = string.format('%d%s', loops() - t1, dir)\n"
-            f"    last = cur\n"
-            f"  end\n"
+            f"  out[#out + 1] = string.format('%d:%d', loops() - t1, idx())\n"
             f"end\n"
+            f"print('START=' .. start)\n"
             f"keyboard_write({RELEASE})\n"
             f"print(table.concat(out, ' '))\n")
-        changes = [(int(tok[:-1]), tok[-1]) for tok in out.split() if tok and tok[-1] in "LR"]
-        left_changes = [delta for delta, dirn in changes if dirn == "L"]
-        right_after_switch = [delta for delta, dirn in changes if dirn == "R"]
-        if not left_changes:
-            failures.append(f"direction reversal: no left (decrementing) step seen at all "
-                            f"in the 12 loops after switching -- changes were {changes}")
-        elif left_changes[0] < AIM_TURN_T0_EXPECT - 2:
-            failures.append(f"direction reversal: first left step came after only "
-                            f"{left_changes[0]} loop(s) of holding left, expected roughly "
-                            f"{AIM_TURN_T0_EXPECT} -- looks like the fast stage from the "
-                            f"earlier right-hold carried over instead of the ramp restarting "
-                            f"(all changes: {changes})")
-        if any(delta > 2 for delta in right_after_switch):
-            failures.append(f"direction reversal: a right (incrementing) step happened more "
-                            f"than 2 loops after Left was pressed -- Right should stop firing "
-                            f"almost immediately once the switch is detected (all changes: "
-                            f"{changes})")
+        switch_start = int(out.split("START=")[1].split()[0])
+        samples4 = sorted(tuple(int(v) for v in tok.split(":")) for tok in out.split() if ":" in tok)
+        # A right-step can still land right at the switch (scan latency), so
+        # the first LEFT step doesn't necessarily take idx straight below
+        # switch_start -- it might first just cancel a trailing right-step
+        # back to switch_start exactly. Detect the first left step as the
+        # first sample-to-sample DECREASE, not as a fixed target value.
+        first_left_loop = None
+        last_idx = switch_start
+        max_forward = 0
+        for loop, idx in samples4:
+            delta = (idx - last_idx) % DIRECTIONS
+            if delta not in (0, 1):   # a decrease (mod DIRECTIONS): a left step happened
+                first_left_loop = loop
+                break
+            last_idx = idx
+            max_forward = max(max_forward, (idx - switch_start) % DIRECTIONS)
+        if first_left_loop is None:
+            failures.append(f"direction reversal: never saw a left (decrementing) step within "
+                            f"12 loops of switching -- samples: {samples4}")
+        elif first_left_loop < AIM_TURN_T0_EXPECT - 2:
+            failures.append(f"direction reversal: first left step observed at loop "
+                            f"{first_left_loop}, expected around {AIM_TURN_T0_EXPECT} -- looks "
+                            f"like the fast stage from the earlier right-hold carried over "
+                            f"instead of the ramp restarting (samples: {samples4})")
+        elif first_left_loop > AIM_TURN_T0_EXPECT + 4:
+            failures.append(f"direction reversal: first left step observed at loop "
+                            f"{first_left_loop}, expected around {AIM_TURN_T0_EXPECT} -- slower "
+                            f"than a fresh ramp should be (samples: {samples4})")
+        # Right must not keep advancing far past the switch (a stray step or
+        # two from scan latency is fine; a whole extra ramp's worth is not).
+        if max_forward > 2:
+            failures.append(f"direction reversal: Right advanced {max_forward} steps past the "
+                            f"switch point {switch_start} before any left step -- Right should "
+                            f"stop firing almost immediately (samples: {samples4})")
 
         # --- 5. Left decrements and wraps at the 0/63 boundary ---------------
         # Release + settle first: guarantee gaim_turn_dir/hold/tick are back to
@@ -205,11 +253,11 @@ def main():
         # rather than trusting whatever state the previous section left.
         wait_lua(f"keyboard_write({RELEASE})\nwait_frames(4)\n"
                 f"cpc.setRam({sym['gaim_index']}, string.char(0))\nwait_frames(2)\n")
-        left_steps = trace_hold(sym, PRESS_LEFT, 6)
+        left_samples = sample_hold(sym, PRESS_LEFT, 8)
+        verify_ramp(left_samples, 0, -1, "left-wrap", failures)
         final_idx = int(wait_lua(f"print(cpc.getRam({sym['gaim_index']}, 1):byte(1))").split()[-2])
-        if not left_steps or final_idx != DIRECTIONS - 1:
-            failures.append(f"left from index 0 should wrap to {DIRECTIONS - 1}, got {final_idx} "
-                            f"(steps at {left_steps})")
+        if final_idx != DIRECTIONS - 1:
+            failures.append(f"left from index 0 should wrap to {DIRECTIONS - 1}, got {final_idx}")
     finally:
         if not args.keep_emulator:
             shutdown(emulator)

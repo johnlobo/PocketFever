@@ -37,6 +37,24 @@ def throttle_at(held_frames):
     return level
 
 
+def steps_completed(held_loops):
+    """How many steps have fired after `held_loops` continuous held frames
+    (0 for held_loops<=0). Complements simulate(): that asks "how many frames
+    for N steps", this asks "how many steps in N frames" -- used to verify a
+    single observed sample against the model without needing to have caught
+    every individual step transition (a poll can skip one)."""
+    if held_loops <= 0:
+        return 0
+    held, tick, done = 0, 0, 0
+    for _ in range(held_loops):
+        held += 1
+        tick += 1
+        if tick >= throttle_at(held):
+            tick = 0
+            done += 1
+    return done
+
+
 def simulate(steps):
     """Frames to complete `steps` index changes, holding the whole time."""
     held, frame, done = 0, 0, 0

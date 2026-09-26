@@ -363,8 +363,6 @@ gdl_step:
 
     call gdl_in_bounds
     ret z                        ;; out of the felt: stop the whole line here
-    call gdl_overlaps_any_ball
-    ret nz                       ;; would overlap a ball: stop the line here
 
     push bc
     ld a, (gaim_pattern)
@@ -425,53 +423,12 @@ gdl_ib_out:
     xor a
     ret
 
-;; Z if the AIM_DASH_PXxAIM_DASH_PX box at (B,C) overlaps no ball's
-;; BALL_WIDTH_PXxBALL_HEIGHT_PX box; NZ if it overlaps at least one (same
-;; per-axis test as sys_collision_check_pair, generalized to two box sizes,
-;; looped over the whole pool instead of one pair).
-;; Input: B, C as above.
-;; Output: Z = no overlap, NZ = overlap.
-;; Modified: AF, DE, HL, IY
-gdl_overlaps_any_ball:
-    push bc
-    ld iy, #entities+a_array
-    ld d, #MAX_ENTITIES
-gdl_ov_loop:
-    ld a, x_cmps(iy)
-    and #c_cmp_render
-    jr z, gdl_ov_next
-    ld a, b
-    add a, #AIM_DASH_PX
-    ld e, a
-    ld a, e_x+1(iy)
-    cp e
-    jr nc, gdl_ov_next            ;; ball_x >= dash_right: no x overlap
-    ld a, e_x+1(iy)
-    add a, #BALL_WIDTH_PX
-    cp b
-    jr c, gdl_ov_next             ;; ball_right <= dash_left: no x overlap
-    jr z, gdl_ov_next             ;; (cp only sets carry for strict <, need <=)
-    ld a, c
-    add a, #AIM_DASH_PX
-    ld e, a
-    ld a, e_y+1(iy)
-    cp e
-    jr nc, gdl_ov_next            ;; ball_y >= dash_bottom: no y overlap
-    ld a, e_y+1(iy)
-    add a, #BALL_HEIGHT_PX
-    cp c
-    jr c, gdl_ov_next             ;; ball_bottom <= dash_top: no y overlap
-    jr z, gdl_ov_next             ;; (cp only sets carry for strict <, need <=)
-    pop bc
-    or #1
-    ret
-gdl_ov_next:
-    push de                       ;; D is the loop counter; ADD IY,rr only takes
-    ld de, #sizeof_e               ;; BC/DE/SP, so borrow DE and restore it after
-    add iy, de
-    pop de
-    dec d
-    jr nz, gdl_ov_loop
-    pop bc
-    xor a
-    ret
+;; Ball-overlap stopping was removed: the line only ever shows while
+;; gaim_all_still holds for every entity, and sys_entity_erase_one/
+;; sys_entity_draw_one (sys/entity.s) now skip a settled ball entirely --
+;; so nothing touches a resting ball's pixels while the line is up, and
+;; drawing a dash over one is exactly as safe as drawing it over plain
+;; felt (both are undone perfectly by the matching erase). The dash still
+;; shows the XOR of whatever pattern happens to sit there, which looks
+;; like the aim colour over felt but some XOR mix over a ball -- accepted,
+;; not a bug: reversibility never depended on the colour underneath.
