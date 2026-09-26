@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+"""XOR aim line: lossless draw/erase, follows cursor keys, hides while moving.
+
+Boots PocketFever.dsk in AmSpiriT-Lite and drives real cursor-key input
+(hardware keyboard matrix, not RAM pokes) plus real screenshots -- this is
+the test for the property the feature exists for: showing and hiding the
+line must never leave a mark on the felt.
+
+1. Round-trip (the critical check): hold Right for exactly one full 32-step
+   revolution (AIM_TURN_THROTTLE frames per step), so the game erases and
+   redraws the line 32 times over 32 different directions and returns to the
+   starting one. A screenshot taken before the turn and one taken after must
+   be PIXEL-IDENTICAL. Any XOR corruption at ANY of the 32 intermediate
+   directions -- a dash overlapping a ball, a mismatched erase -- leaves a
+   stray flipped pixel that a later direction's own draw/erase does not
+   touch, so it would still show up in the final image even though the
+   final direction matches the first.
+2. Geometry: at a chosen direction, the exact dash pixels computed by
+   tools/aim_model.py (the same formula the Z80 uses) must show the aim
+   colour in a real screenshot -- proves a line is actually drawn, not just
+   "nothing crashed".
+3. Hides while moving: after firing, gaim_shown (game/aim.s's public state)
+   must read 0 while the table is not at rest.
+4. Reappears at the new position: once everything stops after a shot,
+   gaim_last_cx/cy (also public) must match the cue's new resting spot, not
+   the pre-shot one.
+
+Usage: python3 tests/aim_test.py [--keep-emulator]
+"""
+import argparse
+import sys
+import time
+
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent / "tools"))
+from aim_model import config, dash_points  # noqa: E402
+
+from amspirit import BALL_COUNT, ENTITY_SIZE, boot, get, post, ram, screenshot, shutdown, symbols
+
+PRESS_RIGHT = "253, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255"  # Key_CursorRight=0x0200: row 0, bit 1
+RELEASE = "255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255"
+PRESS_SPACE = "255, 255, 255, 255, 255, 127, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255"
+
+
+def nearest_pen(rgb, palette):
+    return min(range(len(palette)),
+               key=lambda pen: sum((a - b) ** 2 for a, b in zip(rgb, palette[pen])))
+
+
+def felt_box(rows, colour):
+    xs, ys = [], []
+    for y, row in enumerate(rows):
+        for x, rgb in enumerate(row):
+            if rgb == colour:
+                xs.append(x)
+                ys.append(y)
+    return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+
+
+_wait_lua_calls = [0]
+
+
+def wait_lua(source, timeout=300):
+    """Runs a Lua snippet and waits for it to actually finish.
+
+    POST returns before the script starts, so `not state["running"]` alone
+    can fire on a poll that lands between the POST and the script actually
+    being picked up (confirmed: right after POSTing script N+1, a GET can
+    still show running=False with script N's leftover output) -- the same
+    gotcha collision_test.py's run_lua guards against with its own "DONE"
+    marker. Guarding against it needs the marker to be UNIQUE PER CALL, not
+    just present: this function makes many separate script calls per test
+    run (unlike run_lua's one-script-per-run pattern), so a fixed marker
+    would match the PREVIOUS call's leftover output just as easily as this
+    one's -- found by direct experiment, not by inspection.
+    """
+    _wait_lua_calls[0] += 1
+    sentinel = f"__WAIT_LUA_DONE_{_wait_lua_calls[0]}__"
+    if not post("/api/script?lang=lua", source + f'\nprint("{sentinel}")\n', "text/plain")["ok"]:
+        sys.exit("emulator refused the Lua script")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        state = get("/api/script")
+        if state["error"]:
+            sys.exit("Lua error: " + state["error"])
+        if not state["running"] and sentinel in state["output"]:
+            return state["output"]
+        time.sleep(0.3)
+    sys.exit("Lua script did not finish in time")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--keep-emulator", action="store_true")
+    args = parser.parse_args()
+
+    sym = symbols("entity_array", "gaim_index", "gaim_shown", "gaim_last_cx", "gaim_last_cy")
+    throttle = config("AIM_TURN_THROTTLE")
+    failures = []
+    emulator = boot()
+    try:
+        wait_lua("wait_frames(9)")  # let the default-direction line settle
+
+        # --- 1. round-trip across a full revolution -------------------------
+        # Poll for "back to the starting direction, having moved away from it"
+        # rather than counting frames for 32 throttled steps: the exact
+        # frames-per-step ratio is an emulator/script-timing detail this test
+        # shouldn't have to pin down, and getting it wrong either cuts the
+        # revolution short (weaker test) or overshoots it (still fine, since
+        # a straight line drawn from any two full turns is just as sensitive
+        # to residue) -- polling the actual outcome is robust either way.
+        w, h, before = screenshot()
+        output = wait_lua(
+            f"local idx = cpc.getRam({sym['gaim_index']}, 1):byte(1)\n"
+            f"keyboard_write({PRESS_RIGHT})\n"
+            f"local moved = false\n"
+            f"for i = 1, 600 do\n"
+            f"  wait_frames(1)\n"
+            f"  local now = cpc.getRam({sym['gaim_index']}, 1):byte(1)\n"
+            f"  if now ~= idx then moved = true end\n"
+            f"  if moved and now == idx then break end\n"
+            f"  if i == 600 then print('TIMEOUT') end\n"
+            f"end\n"
+            f"keyboard_write({RELEASE})\n"
+            f"wait_frames(2)\n", timeout=120)
+        if "TIMEOUT" in output:
+            failures.append("held Right for 600 waits without completing a full revolution "
+                            "(gaim_index never returned to its starting value)")
+        w2, h2, after = screenshot()
+        if (w, h) != (w2, h2):
+            failures.append(f"screenshot size changed: {w}x{h} -> {w2}x{h2}")
+        elif before != after:
+            diffs = [(x, y) for y in range(h) for x in range(w) if before[y][x] != after[y][x]]
+            failures.append(f"round-trip left {len(diffs)} pixel(s) different, e.g. {diffs[:5]} "
+                            f"(before={[before[y][x] for x, y in diffs[:5]]} "
+                            f"after={[after[y][x] for x, y in diffs[:5]]})")
+
+        # --- 2. geometry: dashes for a known direction are really drawn -----
+        index = 8   # 90 deg screen-wise: straight down from the cue
+        wait_lua(f"cpc.setRam({sym['gaim_index']}, string.char({index}))\n"
+                 f"wait_frames(1)\n")  # forces a redraw next update (index changed)
+        cue = ram(sym["entity_array"], 5)
+        cue_x, cue_y = cue[2], cue[4]
+        felt_pen = config("FELT_PEN")
+        ga = get("/api/ga")
+        palette = [((v >> 16) & 255, (v >> 8) & 255, v & 255) for v in ga["ink_rgb"]]
+        w, h, rows = screenshot()
+        x0, y0, x1, y1 = felt_box(rows, palette[felt_pen])
+        sx = (x1 - x0) / config("TABLE_WIDTH_PX")
+        sy = (y1 - y0) / config("TABLE_HEIGHT_PX")
+        points = dash_points(index, cue_x, cue_y, [(cue_x, cue_y)],
+                             config("AIM_STEP_MULT"), config("AIM_DASH_COUNT"),
+                             config("AIM_DASH_PX"), config("BALL_WIDTH_PX"), config("BALL_HEIGHT_PX"))
+        if not points:
+            failures.append("aim_model says direction 8 produces zero dashes from the boot cue position")
+        else:
+            wrong = 0
+            for dash_x, dash_y in points:
+                left = dash_x & ~1        # mode 0: the blit starts on the byte holding x
+                for dx in range(config("AIM_DASH_PX")):
+                    for dy in range(config("AIM_DASH_PX")):
+                        px = int(x0 + (left + dx + 0.5) * sx)
+                        py = int(y0 + (dash_y - config("TABLE_Y_PX") + dy + 0.5) * sy)
+                        if nearest_pen(rows[py][px], palette) == felt_pen:
+                            wrong += 1
+            if wrong:
+                failures.append(f"direction 8: {wrong} dash pixels still show the felt colour "
+                                f"(expected {len(points)} dashes x {config('AIM_DASH_PX')**2} px)")
+
+        # --- 3 & 4. hides while moving, reappears at the new position -------
+        # Direction 0 (pure +x, toward the far-off left... rather, +x is
+        # right) and a longer charge: found by experiment that a straight
+        # shot toward a NEARBY cushion can bounce once and land back on its
+        # exact starting pixel (real physics -- the cue started almost
+        # equidistant from the top and bottom cushions, and a minimum-power
+        # shot into the close one returned exactly to 131 in an earlier run
+        # of this very test). A firm shot along the table's long axis makes
+        # that coincidence's odds negligible without weakening what's
+        # actually being checked (gaim_last_cx/cy tracking wherever the cue
+        # really ends up).
+        wait_lua(f"cpc.setRam({sym['gaim_index']}, string.char(0))\nwait_frames(1)\n")
+        before_shot = ram(sym["entity_array"], 5)
+        pre_cx, pre_cy = before_shot[2], before_shot[4]
+        wait_lua(f"keyboard_write({PRESS_SPACE})\nwait_frames(30)\nkeyboard_write({RELEASE})\n")
+        shown_mid_flight = None
+        for _ in range(30):
+            wait_lua("wait_frames(0)")
+            shown = ram(sym["gaim_shown"], 1)[0]
+            pool = ram(sym["entity_array"], BALL_COUNT * ENTITY_SIZE)
+            moving = any(pool[s * ENTITY_SIZE + 5:s * ENTITY_SIZE + 9] != b"\x00\x00\x00\x00"
+                        for s in range(BALL_COUNT))
+            if moving:
+                shown_mid_flight = shown
+                break
+        if shown_mid_flight is None:
+            failures.append("shot never got the cue moving within 30 frames")
+        elif shown_mid_flight != 0:
+            failures.append(f"gaim_shown={shown_mid_flight} while a ball is moving, expected 0")
+
+        for _ in range(400):
+            pool = ram(sym["entity_array"], BALL_COUNT * ENTITY_SIZE)
+            if all(pool[s * ENTITY_SIZE + 5:s * ENTITY_SIZE + 9] == b"\x00\x00\x00\x00"
+                   for s in range(BALL_COUNT)):
+                break
+            wait_lua("wait_frames(4)")
+        else:
+            failures.append("balls never settled after the shot")
+        wait_lua("wait_frames(9)")
+        cue = ram(sym["entity_array"], 5)
+        new_cx, new_cy = cue[2], cue[4]
+        if (new_cx, new_cy) == (pre_cx, pre_cy):
+            failures.append("cue ball did not move: the reappear-at-new-position check needs it to")
+        last_cx, last_cy = ram(sym["gaim_last_cx"], 1)[0], ram(sym["gaim_last_cy"], 1)[0]
+        if (last_cx, last_cy) != (new_cx, new_cy):
+            failures.append(f"gaim_last_cx/cy=({last_cx},{last_cy}) after the shot settled, "
+                            f"expected the cue's new position ({new_cx},{new_cy})")
+
+        # --- 5. the gate survives a velocity-independent settle -------------
+        # sys_collision_balls_bounce separates overlapping RESTING balls by
+        # nudging position directly (NudgeInc/NudgeDec, sys/collision.s) --
+        # this never touches velocity, so a chain of balls can keep sliding
+        # 1px/frame apart with v=0 the whole time. gaim_all_still used to
+        # check only velocity (IsStill); a ball moved this way while the cue
+        # and gaim_index stay untouched would pass "unchanged" and never get
+        # re-erased/redrawn -- a permanent stray XOR mark wherever a nudge
+        # crossed a shown dash. Reproduced with three balls placed already
+        # OVERLAPPING (x=50,47,44 -- each pair overlaps by 1px), all v=0 and
+        # staying v=0 for every single frame of the whole settle (confirmed
+        # by hand: this needs genuine overlap-at-placement, not a moving
+        # striker, or the striking ball's own nonzero velocity gets caught
+        # by the old velocity-only check and masks the defect). Slots 1-3,
+        # far from the cue (slot 0, left at its own resting spot) and from
+        # its dash path, so this isolates the GATE rather than the separate,
+        # already-guarded dash/ball overlap check.
+        # Placement AND the frame-by-frame trace must be ONE Lua script: the
+        # emulator keeps running in real time regardless of whether a script
+        # is active (confirmed by hand), so two separate wait_lua calls here
+        # let the whole settle finish in the real-time gap between them --
+        # the trace would start already-settled and never see the window.
+        trace = wait_lua(
+            f"local ARR2, SZ2 = {sym['entity_array']}, {ENTITY_SIZE}\n"
+            f"local function word(v) if v < 0 then v = v + 65536 end return v % 256, v // 256 end\n"
+            f"local function place(slot, x, y, vx, vy)\n"
+            f"  local vxl, vxh = word(vx)\n"
+            f"  local vyl, vyh = word(vy)\n"
+            f"  cpc.setRam(ARR2 + slot * SZ2 + 1, string.char(0, x, 0, y, vxl, vxh, vyl, vyh))\n"
+            f"  cpc.setRam(ARR2 + slot * SZ2 + 13, string.char(2, 0))\n"
+            f"end\n"
+            f"place(1, 50, 190, 0, 0)\nplace(2, 47, 190, 0, 0)\nplace(3, 44, 190, 0, 0)\n"
+            f"wait_frames(0)\n"    # let the game's own loop see the new placement before sampling
+            f"local function state()\n"
+            f"  local moving, dirty = false, false\n"
+            f"  for s = 1, 3 do\n"
+            f"    local e = cpc.getRam(ARR2 + s * SZ2, 14)\n"
+            f"    if e:byte(6) ~= 0 or e:byte(7) ~= 0 or e:byte(8) ~= 0 or e:byte(9) ~= 0 then moving = true end\n"
+            f"    if e:byte(14) ~= 0 then dirty = true end\n"
+            f"  end\n"
+            f"  return moving, dirty\n"
+            f"end\n"
+            f"local out, settled_extra = {{}}, nil\n"
+            f"for f = 1, 120 do\n"
+            f"  local moving, dirty = state()\n"
+            f"  local shown = cpc.getRam({sym['gaim_shown']}, 1):byte(1)\n"
+            f"  out[#out + 1] = string.format('%d,%d,%d,%d', f, moving and 1 or 0, dirty and 1 or 0, shown)\n"
+            f"  if not moving and not dirty and settled_extra == nil then settled_extra = 0 end\n"
+            f"  if settled_extra ~= nil then\n"
+            f"    settled_extra = settled_extra + 1\n"
+            f"    if settled_extra > 2 then break end\n"   # give aim_update a couple more frames to react
+            f"  end\n"
+            f"  wait_frames(0)\n"
+            f"end\n"
+            f"print(table.concat(out, ' '))\n", timeout=60)
+        samples = [tuple(int(v) for v in token.split(","))
+                  for token in trace.split() if token.count(",") == 3]
+        v_still_frame = cflags_still_frame = None
+        shown_at_v_still = None
+        for f, moving, dirty, shown in samples:
+            if not moving and v_still_frame is None:
+                v_still_frame, shown_at_v_still = f, shown
+            if not moving and not dirty and cflags_still_frame is None:
+                cflags_still_frame = f
+        # The trace runs a couple of extra frames past full settle so
+        # aim_update (which reacts to LAST frame's state) gets a chance to
+        # notice and redraw; the final sample is that later point.
+        shown_at_full_settle = samples[-1][3] if samples else None
+        if v_still_frame is None:
+            failures.append("cradle: velocities never settled")
+        elif cflags_still_frame is None:
+            failures.append("cradle: e_cflags never settled (still nudging after 120 frames)")
+        else:
+            if cflags_still_frame == v_still_frame:
+                failures.append("cradle: v=0 and cflags=0 landed on the same frame -- this "
+                                "scenario needs to produce at least one frame of v=0-but-still-"
+                                "nudging to actually exercise the fix; adjust the positions")
+            elif shown_at_v_still != 0:
+                failures.append(f"cradle: gaim_shown={shown_at_v_still} at frame {v_still_frame} "
+                                f"(velocities zero, but balls still being nudged apart) -- the "
+                                f"cue and gaim_index never changed, so the old velocity-only gate "
+                                f"would wrongly call this 'unchanged' and never re-erase/redraw")
+            if shown_at_full_settle != 1:
+                failures.append(f"cradle: gaim_shown={shown_at_full_settle} at frame "
+                                f"{cflags_still_frame} once truly settled, expected 1 (redrawn)")
+    finally:
+        if not args.keep_emulator:
+            shutdown(emulator)
+
+    for failure in failures:
+        print("FAIL " + failure)
+    print("aim_test: " + ("FAIL" if failures else "PASS"))
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

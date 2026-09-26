@@ -1,5 +1,7 @@
 ;; Test shot: hold SPACE to charge, release to fire the cue ball (slot 0) in
-;; one of 32 random directions. Testing aid until real aiming exists.
+;; the aimed direction (game/aim.s owns gaim_index; left/right cursor keys
+;; aim, an XOR line shows it). Power is deterministic; direction is whatever
+;; the player is pointing at, never random.
 .module game_shot
 
 .include "cpctelera.h.s"
@@ -12,7 +14,9 @@
 
 gsu_power:  .db 0              ;; 0 = not charging, else current power
 gsu_tick:   .db 0              ;; frames held since the last power step
-gsu_seeded: .db 0
+gsu_fire_power: .db 0          ;; gsu_fire's own working state
+gsu_dx:         .dw 0
+gsu_dy:         .dw 0
 
 .area _CODE
 
@@ -21,9 +25,8 @@ gsu_seeded: .db 0
 ;; game_shot_update
 ;;
 ;;  Pressed: start or keep charging (bar grows one segment per level).
-;;  Released after charging: fire with the charged power, clear the bar.
-;;  The random generator is seeded on the first press, so the player's
-;;  timing (R register, interrupt phase) decides the sequence.
+;;  Released after charging: fire with the charged power in gaim_index's
+;;  direction, clear the bar.
 ;;  Input:
 ;;  Output:
 ;;  Modified: AF, BC, DE, HL, IX
@@ -35,13 +38,6 @@ game_shot_update::
     ld a, (gsu_power)
     or a
     jr nz, gsu_charging
-    ld a, (gsu_seeded)
-    or a
-    jr nz, gsu_start
-    inc a
-    ld (gsu_seeded), a
-    call sys_util_seed_random
-gsu_start:
     xor a
     ld (gsu_tick), a
     ld a, #SHOT_POWER_MIN
@@ -72,11 +68,11 @@ gsu_released:
     ;; fall through with A = power
 
 ;;  Input: A = power (SHOT_POWER_MIN..MIN+SPAN)
+;;  Output:
+;;  Modified: AF, BC, DE, HL, IX
 gsu_fire:
-    push af
-    call cpct_getRandom_mxor_u8_asm
-    ld a, l
-    and #31
+    ld (gsu_fire_power), a
+    ld a, (gaim_index)
     add a, a
     add a, a
     ld e, a
@@ -86,18 +82,24 @@ gsu_fire:
     ld e, (hl)
     inc hl
     ld d, (hl)
+    ld (gsu_dx), de
     inc hl
-    ld c, (hl)
+    ld e, (hl)
     inc hl
-    ld b, (hl)
-    pop af
-    push bc
-    ld b, a
+    ld d, (hl)
+    ld (gsu_dy), de
+
     ld ix, #entities+a_array
+    ld a, (gsu_fire_power)
+    ld b, a
+    ld de, (gsu_dx)
     call gsu_scale
     ld e_vx(ix), l
     ld e_vx+1(ix), h
-    pop de
+
+    ld a, (gsu_fire_power)
+    ld b, a
+    ld de, (gsu_dy)
     call gsu_scale
     ld e_vy(ix), l
     ld e_vy+1(ix), h

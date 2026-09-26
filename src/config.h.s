@@ -40,3 +40,22 @@ SHOT_BAR_X_BYTES = 2
 SHOT_BAR_Y_PX    = 40
 SHOT_BAR_HEIGHT  = 6
 SHOT_BAR_PEN     = 15
+
+;; game/aim.s XOR trajectory line. Dashes step out from the cue ball's CENTER
+;; along the aimed direction (src/game/shot_table.s). AIM_STEP_MULT and
+;; AIM_DASH_COUNT are picked by tools/aim_model.py so the first dash always
+;; clears the cue ball's own 4x6 box (>=5px in every direction) — the line
+;; must never overlap a ball's box, or that ball's ordinary per-frame
+;; erase/redraw (a direct felt overwrite, not XOR) would corrupt the XOR
+;; toggle and leave a permanent mark. The line stops at the dash before any
+;; overlap, so it also visually stops at the first ball in its way.
+AIM_STEP_MULT    = 40
+AIM_DASH_COUNT   = 5
+AIM_DASH_PX      = 2
+AIM_PEN          = 15
+;; Frames per direction step while a cursor key is held (32 steps, so this
+;; many * 32 frames for a full turn).
+AIM_TURN_THROTTLE = 3
+;; Index into shot_directions (angle = index*360/32). 16 = 180 deg = left,
+;; toward the rack, since the cue starts at the right (game/table.s).
+AIM_DEFAULT_INDEX = 16

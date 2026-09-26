@@ -104,6 +104,15 @@
 .globl game_shot_update
 .globl shot_directions
 
+;; game/aim.s
+.globl gaim_index
+.globl gaim_shown
+.globl gaim_last_index
+.globl gaim_last_cx
+.globl gaim_last_cy
+.globl game_aim_init
+.globl game_aim_update
+
 ;; sys/text.s
 .globl aux_txt
 .globl sys_text_init

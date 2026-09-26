@@ -4,8 +4,9 @@
 Each entry is (dx, dy) for a speed of STEP raster lines per frame. Mode 0
 pixels are wider than tall: the 160x132 felt looks 2:1, so one pixel spans
 2*132/160 = 1.65 line heights. dx is divided by that ratio so every direction
-moves the same distance on screen. game/shot.s multiplies an entry by a random
-power, so the table only fixes the direction.
+moves the same distance on screen. game/shot.s multiplies an entry by the
+charged power (the aimed direction, from game/aim.s's gaim_index); game/aim.s
+multiplies the same entry by AIM_STEP_MULT to place the XOR aim-line dashes.
 
 Usage: python3 tools/gen_shot_table.py > src/game/shot_table.s
 """
