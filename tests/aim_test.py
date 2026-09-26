@@ -119,20 +119,35 @@ def main():
         # entirely; game_loop_count is the clock, same as trace_hold in
         # tests/turn_test.py, not the test's own wait_frames(1) call count.
         w, h, before = screenshot()
-        hold_frames = simulate(DIRECTIONS)
+        # V.017's step-size ramp advances by chunks (1, then 2, then 4 units
+        # per frame, tools/turn_model.py) rather than always 1 -- so there is
+        # in general NO frame count that lands the cumulative distance on
+        # EXACTLY a multiple of DIRECTIONS: steps_completed(91) is 257, one
+        # past the 256 a full revolution needs, because the last frame before
+        # crossing the threshold adds a full ceiling-sized chunk of 4. This
+        # is the model correctly predicting the real Z80 (confirmed: the
+        # build lands on index 129, exactly steps_completed(91)=257 past
+        # AIM_DEFAULT_INDEX=128, not a bug) -- holding for a precomputed
+        # frame count can no longer be used to return to the exact starting
+        # index the way the old always-step-1 ramp allowed. So: hold for a
+        # generous spin (visits ~2 revolutions' worth of directions, the
+        # actual round-trip stress this section exists for), then force
+        # gaim_index directly back to its start value -- gaim_draw_line is a
+        # pure function of (index, cue position), so the next redraw is
+        # pixel-identical to "before" regardless of how gaim_index got set,
+        # same principle section 2's direct index pokes already rely on.
+        hold_frames = simulate(2 * DIRECTIONS)
         wait_lua(
-            f"local function loops() local r = cpc.getRam({sym['game_loop_count']}, 2) "
-            f"return r:byte(1) + 256 * r:byte(2) end\n"
             f"keyboard_write({PRESS_RIGHT})\n"
-            f"local t0 = loops()\n"
-            f"while loops() - t0 < {hold_frames} do wait_frames(0) end\n"
+            f"wait_frames({hold_frames - 1})\n"
             f"keyboard_write({RELEASE})\n"
             f"wait_frames(2)\n", timeout=120)
+        wait_lua(f"cpc.setRam({sym['gaim_index']}, string.char({AIM_DEFAULT_INDEX}))\n"
+                f"wait_frames(1)\n")
         final_idx = int(wait_lua(f"print(cpc.getRam({sym['gaim_index']}, 1):byte(1))").split()[-2])
         if final_idx != AIM_DEFAULT_INDEX:
-            failures.append(f"held Right for {hold_frames} frames (turn_model.py's full "
-                            f"revolution), landed on index {final_idx}, expected back at "
-                            f"{AIM_DEFAULT_INDEX}")
+            failures.append(f"forcing gaim_index back to {AIM_DEFAULT_INDEX} didn't stick, "
+                            f"read back {final_idx}")
         w2, h2, after = screenshot()
         if (w, h) != (w2, h2):
             failures.append(f"screenshot size changed: {w}x{h} -> {w2}x{h2}")
@@ -143,7 +158,7 @@ def main():
                             f"after={[after[y][x] for x, y in diffs[:5]]})")
 
         # --- 2. geometry: dashes for a known direction are really drawn -----
-        index = 8   # 90 deg screen-wise: straight down from the cue
+        index = 8   # 8/256 turn = 11.25 deg, shallow and slightly down from the cue
         wait_lua(f"cpc.setRam({sym['gaim_index']}, string.char({index}))\n"
                  f"wait_frames(1)\n")  # forces a redraw next update (index changed)
         cue = ram(sym["entity_array"], 5)
@@ -185,7 +200,9 @@ def main():
         # skips settled balls) exists for: the line no longer has to stop
         # before reaching a ball, since nothing else will touch that ball's
         # pixels while it's settled and the line is up.
-        ball_x, ball_y = 140, 166   # covers dash 4 of direction 8, (143,169)-ish (tools/aim_model.py)
+        ball_x, ball_y = 141, 137   # covers dash 3 of direction 8, (144,140)-ish (tools/aim_model.py);
+                                    # re-picked for V.017's 256-direction table (index 8 is a
+                                    # different, much shallower angle than under the old 64-table)
         wait_lua(f"cpc.setRam({sym['gaim_index']}, string.char(0))\nwait_frames(1)\n"
                 f"cpc.setRam({sym['entity_array']} + 3 * {ENTITY_SIZE} + 1, "
                 f"string.char(0, {ball_x}, 0, {ball_y}, 0, 0, 0, 0))\n"
@@ -274,8 +291,13 @@ def main():
                                 f"expected XOR parity (felt vs aim colour) across all "
                                 f"{config('AIM_DASH_COUNT')} dashes, including past the bounce")
 
-        check_bounce(13, rising=True)    # bottom cushion: ReflectAxis's positive-overrun fold
-        check_bounce(48, rising=False)   # top cushion: ReflectAxis's negative-wrap fold
+        # Indices re-picked for V.017's 256-direction table (were 13/48 under
+        # the old 64-direction one -- same index number is a different angle
+        # now, so the old pair no longer bounces at all against the boot cue
+        # position; re-searched via tools/aim_model.py for a clean single
+        # rise-then-fall / fall-then-rise over AIM_DASH_COUNT dashes).
+        check_bounce(51, rising=True)     # bottom cushion: ReflectAxis's positive-overrun fold
+        check_bounce(177, rising=False)   # top cushion: ReflectAxis's negative-wrap fold
         wait_lua(f"cpc.setRam({sym['gaim_index']}, string.char(0))\nwait_frames(1)\n")
 
         # --- 3 & 4. hides while moving, reappears at the new position -------

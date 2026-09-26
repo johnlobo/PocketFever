@@ -46,7 +46,7 @@ def phys_friction():
 # (hold frames, aim angle in degrees): covers a short/long/mid charge and
 # spreads across quadrants, including 0 deg (pure +x) and 270 deg (pure -y).
 # Angles, not raw table indices: the index for a given angle depends on how
-# many directions shot_table.s has (32 when this was written, 64 now).
+# many directions shot_table.s has (32 when this was written, 256 now).
 CASES_DEG = [(3, 0), (27, 90), (60, 180), (3, 270), (27, 225), (60, 56.25)]
 
 LUA = r"""

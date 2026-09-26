@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate src/game/shot_table.s: 32 shot directions as 8.8 velocity steps.
+"""Generate src/game/shot_table.s: DIRECTIONS shot directions as 8.8 velocity
+steps.
 
 Each entry is (dx, dy) for a speed of STEP raster lines per frame. Mode 0
 pixels are wider than tall: the 160x132 felt looks 2:1, so one pixel spans
@@ -8,11 +9,20 @@ moves the same distance on screen. game/shot.s multiplies an entry by the
 charged power (the aimed direction, from game/aim.s's gaim_index); game/aim.s
 multiplies the same entry by AIM_STEP_MULT to place the XOR aim-line dashes.
 
+DIRECTIONS is imported from turn_model.py, not redefined here -- it used to
+be duplicated in both scripts and could drift out of sync (caught going from
+64 to 256: this file still said 64 after turn_model.py had already moved to
+256). One number, one place.
+
 Usage: python3 tools/gen_shot_table.py > src/game/shot_table.s
 """
 import math
+import pathlib
+import sys
 
-DIRECTIONS = 64
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from turn_model import DIRECTIONS  # noqa: E402
+
 STEP = 64                 # 8.8: 0.25 raster lines per frame per power unit
 PIXEL_ASPECT = 2 * 132 / 160
 

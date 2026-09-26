@@ -68,9 +68,16 @@ def main():
 
     f = friction()
     table = directions()
-    # Every third direction at two speeds (~1 and ~1.25 lines/frame): long
-    # enough rolls to show any bend, short enough to never reach a cushion.
-    cases = [(dx * m, dy * m) for dx, dy in table[::3] for m in (4, 5)]
+    # ~22 directions spread evenly across the table, at two speeds (~1 and
+    # ~1.25 lines/frame): long enough rolls to show any bend, short enough
+    # to never reach a cushion. Stride scales with the table size (used to
+    # be a flat every-3rd, fine for 64 directions but ~4x too many real-
+    # hardware cases once DIRECTIONS grew to 256 for no real gain -- adjacent
+    # directions in a finer table are closer together and don't add much
+    # new information about friction's worst-case bend, which is about the
+    # dx/dy relationship across the compass, not fine angular resolution).
+    stride = max(1, len(table) // 22)
+    cases = [(dx * m, dy * m) for dx, dy in table[::stride] for m in (4, 5)]
     array = symbols("entity_array")["entity_array"]
     emulator = boot()
     try:

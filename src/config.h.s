@@ -74,19 +74,25 @@ AIM_Y_LO     = TABLE_Y_PX+BALL_HEIGHT_PX/2
 AIM_Y_HI     = TABLE_Y_PX+TABLE_HEIGHT_PX-BALL_HEIGHT_PX/2
 AIM_Y_SPAN   = AIM_Y_HI-AIM_Y_LO
 AIM_Y_PERIOD = 2*AIM_Y_SPAN
-;; Frames per direction step while a cursor key is held, staged: starts slow
-;; (precise single-step aiming) and ramps to fast the longer the key stays
-;; held, so a 64-step revolution doesn't take forever without sacrificing
-;; fine control at the start. Sized and verified with tools/turn_model.py;
-;; change there first. AIM_TURN_Hn = frames continuously held before that
-;; stage's throttle (AIM_TURN_Tn) applies; ascending, last one is the floor.
-AIM_TURN_T0 = 6              ;; 0-17 held frames:  1 step / 6 frames (~120 ms/step)
-AIM_TURN_H1 = 18
-AIM_TURN_T1 = 4              ;; 18-35:             1 step / 4 frames (~80 ms/step)
-AIM_TURN_H2 = 36
-AIM_TURN_T2 = 2              ;; 36-59:             1 step / 2 frames (~40 ms/step)
-AIM_TURN_H3 = 60
-AIM_TURN_T3 = 1              ;; 60+ (floor):       1 step / frame    (~20 ms/step)
-;; Index into shot_directions (angle = index*360/64). 32 = 180 deg = left,
-;; toward the rack, since the cue starts at the right (game/table.s).
-AIM_DEFAULT_INDEX = 32
+;; Index-units advanced per held frame while a cursor key is held, staged:
+;; starts at 1 (the finest of the 256 directions, so a tap is always exactly
+;; that precise) and grows the longer the key stays held, so a full 256-step
+;; revolution doesn't take forever at that resolution. V.017 replaced the
+;; old THROTTLE ramp (frames PER step, step always 1) with this STEP ramp (a
+;; step every held frame, size grows) -- DIRECTIONS moved from 64 to 256 and
+;; a flat step of 1 the whole way would have quadrupled full-turn time.
+;; AIM_TURN_Hn = frames continuously held before that stage's step
+;; (AIM_TURN_Sn) applies; ascending, last one is the ceiling -- 4, reached at
+;; AIM_TURN_H2, is deliberately the same top angular speed (5.625 deg/frame)
+;; the old ramp topped out at, so a long hold spins exactly as fast as
+;; before; only the finer stages below are new. Sized and verified with
+;; tools/turn_model.py; change there first.
+AIM_TURN_S0 = 1               ;; 0-19 held frames: 1 index/frame  (1.406 deg/frame)
+AIM_TURN_H1 = 20
+AIM_TURN_S1 = 2                ;; 20-44:           2 index/frame  (2.812 deg/frame)
+AIM_TURN_H2 = 45
+AIM_TURN_S2 = 4                ;; 45+ (ceiling):   4 index/frame  (5.625 deg/frame)
+;; Index into shot_directions (angle = index*360/256, DIRECTIONS=256,
+;; tools/turn_model.py). 128 = 180 deg = left, toward the rack, since the
+;; cue starts at the right (game/table.s).
+AIM_DEFAULT_INDEX = 128

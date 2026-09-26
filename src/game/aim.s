@@ -1,5 +1,5 @@
 ;; XOR trajectory guide for the cue ball. Cursor left/right rotate the aim
-;; direction (one of shot_table.s's 64 steps); a dashed line from the cue
+;; direction (one of shot_table.s's 256 steps); a dashed line from the cue
 ;; shows it. Shown only while every ball is at rest, since XOR draw/erase is
 ;; only lossless when nothing else redraws those pixels in between: the
 ;; ordinary ball erase/draw (sys/entity.s) is a direct felt overwrite, not
@@ -20,7 +20,6 @@
 
 gaim_index::      .db AIM_DEFAULT_INDEX  ;; public: game/shot.s reads this to fire
 gaim_shown::      .db 0
-gaim_turn_tick:   .db 0
 gaim_hold_frames: .db 0                 ;; frames a cursor key has been held continuously
 gaim_turn_dir:    .db 0                 ;; 0 none, 1 left, 2 right (last frame's), for ramp reset on reversal
 gaim_last_index:: .db 0
@@ -183,12 +182,15 @@ gaim_still_next:
     xor a
     ret
 
-;;  Reads cursor left/right, steps gaim_index by 1 every N held frames, N
-;;  staged down (AIM_TURN_T0..T3) as the key stays held -- precise single
-;;  steps at first, fast spin if held (tools/turn_model.py). If both are
-;;  held, left wins (checked first). Switching direction without releasing
-;;  restarts the ramp (gaim_turn_dir), since that's a fresh adjustment, not
-;;  a continuation of the spin that was building up.
+;;  Reads cursor left/right, steps gaim_index by a STEP SIZE that grows the
+;;  longer the key stays held (AIM_TURN_S0..S2, tools/turn_model.py) -- a
+;;  step happens every held frame (no waiting), starting at the finest
+;;  possible step (1 of 256 directions, so a tap always lands precisely) and
+;;  growing to a fast ceiling. If both are held, left wins (checked first).
+;;  Switching direction without releasing restarts the ramp (gaim_turn_dir),
+;;  since that's a fresh adjustment, not a continuation of the spin that was
+;;  building up. DIRECTIONS=256 is exactly one byte's range, so `sub`/`add`
+;;  on gaim_index wrap automatically -- no mask needed regardless of step size.
 ;;  Input:
 ;;  Output:
 ;;  Modified: AF, BC, HL
@@ -200,28 +202,25 @@ gaim_read_turn_keys:
     call cpct_isKeyPressed_asm
     jr nz, gaim_turn_want_right
     xor a
-    ld (gaim_turn_tick), a
     ld (gaim_hold_frames), a
     ld (gaim_turn_dir), a
     ret
 gaim_turn_want_left:
     ld a, #1
     call gaim_turn_note_dir
-    call gaim_turn_tick_or_return
-    ret nc
+    call gaim_turn_step_size
+    ld b, a
     ld a, (gaim_index)
-    dec a
-    and #63
+    sub b
     ld (gaim_index), a
     ret
 gaim_turn_want_right:
     ld a, #2
     call gaim_turn_note_dir
-    call gaim_turn_tick_or_return
-    ret nc
+    call gaim_turn_step_size
+    ld b, a
     ld a, (gaim_index)
-    inc a
-    and #63
+    add a, b
     ld (gaim_index), a
     ret
 
@@ -236,57 +235,40 @@ gaim_turn_note_dir:
     ld (gaim_turn_dir), a
     ret z
     xor a
-    ld (gaim_turn_tick), a
     ld (gaim_hold_frames), a
     ret
 
-;; Advances the hold counter (saturating so a very long hold can't wrap) and
-;; the throttle tick against the CURRENT hold length's throttle. Carry SET =
-;; time to step (caller acts on it), carry CLEAR = not yet (caller's `ret nc`
-;; bails without touching the index).
-;; Modified: AF, BC, HL
-gaim_turn_tick_or_return:
+;; Advances the hold counter (saturating at AIM_TURN_H2 so a very long hold
+;; can't wrap the byte -- past that threshold every held-frame value maps to
+;; the same ceiling step anyway, so capping there changes nothing observable)
+;; and returns this frame's step size for the now-current hold length.
+;; Output: A = step size (index units to advance)
+;; Modified: AF, HL
+gaim_turn_step_size:
     ld hl, #gaim_hold_frames
     ld a, (hl)
-    cp #AIM_TURN_H3
-    jr nc, gttor_hold_capped
-    inc (hl)
-gttor_hold_capped:
-    ld a, (hl)
-    call gaim_throttle_for
-    ld b, a
-    ld hl, #gaim_turn_tick
-    inc (hl)
-    ld a, (hl)
-    cp b
-    jr c, gttor_not_yet
-    ld (hl), #0
-    scf
-    ret
-gttor_not_yet:
-    or a                    ;; clear carry (Z from this is unused)
-    ret
-
-;; Input: A = frames continuously held (0..AIM_TURN_H3)
-;; Output: A = throttle (frames per step) for that hold length
-;; Modified: AF
-gaim_throttle_for:
-    cp #AIM_TURN_H3
-    jr c, gtf_below_h3
-    ld a, #AIM_TURN_T3
-    ret
-gtf_below_h3:
     cp #AIM_TURN_H2
-    jr c, gtf_below_h2
-    ld a, #AIM_TURN_T2
+    jr nc, gtss_capped
+    inc (hl)
+gtss_capped:
+    ld a, (hl)
+    jp gaim_step_for
+
+;; Input: A = frames continuously held (0..AIM_TURN_H2)
+;; Output: A = step size (index units to advance) for that hold length
+;; Modified: AF
+gaim_step_for:
+    cp #AIM_TURN_H2
+    jr c, gsf_below_h2
+    ld a, #AIM_TURN_S2
     ret
-gtf_below_h2:
+gsf_below_h2:
     cp #AIM_TURN_H1
-    jr c, gtf_below_h1
-    ld a, #AIM_TURN_T1
+    jr c, gsf_below_h1
+    ld a, #AIM_TURN_S1
     ret
-gtf_below_h1:
-    ld a, #AIM_TURN_T0
+gsf_below_h1:
+    ld a, #AIM_TURN_S0
     ret
 
 ;; Folds a signed 16-bit pixel position into [_lo, _lo+_span] by mirror
@@ -338,17 +320,19 @@ done:
 ;;  the line no longer stops at the felt edge -- it bounces, each axis
 ;;  reflecting independently off its own legal range (ReflectAxis above) --
 ;;  so it always places exactly AIM_DASH_COUNT dashes.
-;;  Input: D = direction index (0-63), B = cue top-left x (px), C = cue top-left y (px)
+;;  Input: D = direction index (0-255), B = cue top-left x (px), C = cue top-left y (px)
 ;;  Output:
 ;;  Modified: AF, BC, DE, HL, IX, IY
 ;;
 gaim_draw_line:
-    ld a, d
-    add a, a
-    add a, a
-    ld e, a
-    ld d, #0
-    ld hl, #shot_directions
+    ;; index*4 in 16-bit HL, not the old 8-bit "add a,a" x2 -- DIRECTIONS=256
+    ;; (V.017, was 64) means index can be up to 255, and 255*4=1020 overflows
+    ;; a single byte (the old trick only worked because 63*4=252 fit).
+    ld l, d
+    ld h, #0
+    add hl, hl
+    add hl, hl
+    ld de, #shot_directions
     add hl, de
     ld e, (hl)
     inc hl

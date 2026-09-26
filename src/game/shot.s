@@ -72,12 +72,15 @@ gsu_released:
 ;;  Modified: AF, BC, DE, HL, IX
 gsu_fire:
     ld (gsu_fire_power), a
+    ;; index*4 in 16-bit HL, not the old 8-bit "add a,a" x2 -- DIRECTIONS=256
+    ;; (V.017, was 64) means index can be up to 255, and 255*4=1020 overflows
+    ;; a single byte (the old trick only worked because 63*4=252 fit).
     ld a, (gaim_index)
-    add a, a
-    add a, a
-    ld e, a
-    ld d, #0
-    ld hl, #shot_directions
+    ld l, a
+    ld h, #0
+    add hl, hl
+    add hl, hl
+    ld de, #shot_directions
     add hl, de
     ld e, (hl)
     inc hl
