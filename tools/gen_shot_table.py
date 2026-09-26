@@ -43,6 +43,14 @@ def main():
     print("shot_directions::")
     for i, (dx, dy) in enumerate(entries()):
         print(f"    .dw {dx:5d}, {dy:5d}    ;; {i * 360 // DIRECTIONS:3d} deg")
+    print()
+    print(";; index -> whole degrees (0-359), for game/hud.s's angle readout. A")
+    print(";; plain lookup table, not a runtime multiply-and-shift, same reason")
+    print(";; shot_directions itself is precomputed: the angle-per-index mapping")
+    print(";; is a build-time constant, so there is nothing for the Z80 to compute.")
+    print("shot_degrees::")
+    for i in range(DIRECTIONS):
+        print(f"    .dw {i * 360 // DIRECTIONS:3d}")
 
 
 if __name__ == "__main__":

@@ -102,7 +102,9 @@
 
 ;; game/shot.s, game/shot_table.s
 .globl game_shot_update
+.globl gsu_power
 .globl shot_directions
+.globl shot_degrees
 
 ;; game/aim.s
 .globl gaim_index
@@ -112,6 +114,10 @@
 .globl gaim_last_cy
 .globl game_aim_init
 .globl game_aim_update
+
+;; game/hud.s
+.globl game_hud_init
+.globl game_hud_update
 
 ;; sys/text.s
 .globl aux_txt
@@ -123,4 +129,5 @@
 .globl sys_text_draw_string
 .globl sys_text_draw_small_char_number
 .globl sys_text_draw_big_char_number
+.globl sys_text_num_to_ascii3
 .globl _char_buffer

@@ -30,8 +30,8 @@
 .include "cpctelera.h.s"
 .include "globals.inc"
 
-FONT_WIDTH = 2
-FONT_HEIGHT = 9
+;; FONT_WIDTH/HEIGHT moved to config.h.s so other modules can reference them
+;; without including this whole file (see game/hud.s).
 
 ;;
 ;; Start of _DATA area
@@ -327,6 +327,24 @@ _string_color: .db 0
 ;;  Output:
 ;;  Modified: AF, BC, DE, HL, IX
 ;;
+;;  KNOWN BUG, found building game/hud.s (V.018): a SECOND call at the same
+;;  DE with a DIFFERENT digit does not visibly change the screen -- the
+;;  first draw at a given position always shows correctly, but every
+;;  subsequent redraw there is silently a no-op (confirmed with a minimal
+;;  isolated repro: alternating digit 3/7 at a fixed address every frame,
+;;  toggle state verified changing correctly in RAM, screen never leaves
+;;  "3"). Not root-caused -- suspected somewhere in the masked-colorize
+;;  chain (cpct_pens2pixelPatternPairM0_asm / sys_render_drawSpriteMasked
+;;  AlignedColorizeM0_asm) rather than this wrapper, since the digit-index
+;;  arithmetic here was independently verified correct via direct RAM reads
+;;  of the computed offset across repeat calls. This routine had NO call
+;;  sites anywhere in PocketFever before that attempt, so the bug was never
+;;  exercised until then. DO NOT use this for anything that redraws more
+;;  than once at the same position -- game/hud.s's live ANGLE/POWER readout
+;;  uses sys_text_draw_string instead (proven safe for repeat redraws by
+;;  the same isolated-repro method: alternating strings at a fixed address
+;;  updated correctly every time) precisely because of this.
+;;
 sys_text_draw_small_char_number::
     push de
 
@@ -431,3 +449,64 @@ stdbcn_color = . + 1                ;; sys_text_draw_small_char_number
     pop iy
     pop ix
     ret
+
+;;-----------------------------------------------------------------
+;;
+;; sys_text_num_to_ascii3
+;;
+;;  Fills a 4-byte buffer with HL (0-999) as 3 zero-padded ASCII digits
+;;  plus a null terminator, ready for sys_text_draw_string -- pure
+;;  arithmetic, no drawing, so it can't inherit sys_text_draw_small_char_
+;;  number's repeat-call bug (see that routine's header comment).
+;;  Input:  HL = value (0-999, undefined above that), DE = 4-byte buffer
+;;  Output:
+;;  Modified: AF, BC, DE, HL
+;;
+sys_text_num_to_ascii3::
+    ld (stna3_buf), de
+
+    ;; hundreds = value / 100 via repeated subtract (value < 1000, so this
+    ;; is at most 9 iterations -- cheap, never in a hot loop).
+    ld de, #100
+    ld b, #0
+stna3_hundreds_loop:
+    or a
+    sbc hl, de
+    jr c, stna3_hundreds_done
+    inc b
+    jr stna3_hundreds_loop
+stna3_hundreds_done:
+    add hl, de                     ;; undo the subtract that went negative
+    ld a, b
+    add a, #48                     ;; digit -> ASCII '0'-'9'
+    ld de, (stna3_buf)
+    ld (de), a
+
+    ld de, #10
+    ld b, #0
+stna3_tens_loop:
+    or a
+    sbc hl, de
+    jr c, stna3_tens_done
+    inc b
+    jr stna3_tens_loop
+stna3_tens_done:
+    add hl, de
+    ld a, b
+    add a, #48
+    ld de, (stna3_buf)
+    inc de
+    ld (de), a
+
+    ld a, l                        ;; remainder (0-9) is the ones digit
+    add a, #48
+    ld de, (stna3_buf)
+    inc de
+    inc de
+    ld (de), a
+    inc de
+    xor a
+    ld (de), a                     ;; null terminator
+    ret
+
+stna3_buf: .dw 0

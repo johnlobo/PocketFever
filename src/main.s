@@ -19,7 +19,7 @@
 
 .area _DATA
 
-_game_version_string: .asciz " POCKETFEVER V.017"
+_game_version_string: .asciz " POCKETFEVER V.018"
 
 ;; Main-loop iterations, wraps at 65536. tests/perf_test.py compares it with
 ;; emulated frames to measure the real loop rate.
@@ -102,6 +102,7 @@ _main::
     call sys_physics_init
     call sys_collision_init
     call game_aim_init
+    call game_hud_init
 
     cpctm_screenPtr_asm de, 0xC000, 0, HUD_Y_PX+2
     ld hl, #_game_version_string
@@ -133,6 +134,7 @@ loop:
     call sys_entity_draw_all
     call game_shot_update
     call game_aim_update
+    call game_hud_update
     ProfileBorder HW_BRIGHT_YELLOW
     call sys_physics_update
     ProfileBorder HW_BRIGHT_WHITE

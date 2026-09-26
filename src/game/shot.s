@@ -12,7 +12,7 @@
 
 .area _DATA
 
-gsu_power:  .db 0              ;; 0 = not charging, else current power
+gsu_power:: .db 0              ;; public: game/hud.s reads this to show the charge; 0 = not charging, else current power
 gsu_tick:   .db 0              ;; frames held since the last power step
 gsu_fire_power: .db 0          ;; gsu_fire's own working state
 gsu_dx:         .dw 0
