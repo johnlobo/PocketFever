@@ -19,20 +19,34 @@ BALL_CMPS = c_cmp_render | c_cmp_movable | c_cmp_collider | c_cmp_collisionable
     .db _pen
     .db CF_PENDING
     .db 0
+    .db 0           ;; e_pat_full -- computed once in sys_entity_create
+    .db 0           ;; e_pat_l
+    .db 0           ;; e_pat_r
+    .dw 0           ;; e_old_ptr
 .endm
 
+;; e_pat_full/l/r and e_old_ptr are appended AFTER e_facc, not inserted
+;; earlier -- tests/collision_test.py, physics_test.py, shot_test.py,
+;; perf_test.py and aim_test.py all poke e_cflags at the FIXED byte offset
+;; +13 from a slot's own Lua-side literal, not via this struct, so any field
+;; inserted before e_cflags silently breaks every one of them. Grew
+;; sizeof_e 15 -> 20; tests/amspirit.py's ENTITY_SIZE constant must match.
 BeginStruct e
 Field e, cmps, 1
 Field e, x, 2
 Field e, y, 2
 Field e, vx, 2
 Field e, vy, 2
-Field e, old_x, 1
-Field e, old_y, 1
+Field e, old_x, 1        ;; unused since e_old_ptr replaced it for erase (V.019) --
+Field e, old_y, 1        ;; kept only as padding, see the offset-+13 warning above
 Field e, id, 1
 Field e, color, 1
 Field e, cflags, 1
 Field e, facc, 1
+Field e, pat_full, 1
+Field e, pat_l, 1
+Field e, pat_r, 1
+Field e, old_ptr, 2
 EndStruct e
 
 ;; e_cflags. Every change of a ball's position sets CF_PENDING (physics when

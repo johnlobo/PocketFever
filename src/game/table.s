@@ -8,19 +8,20 @@
 .area _DATA
 
 ;; Cue at right kitchen. Diamond rack on the left, apex toward the cue, 9 in
-;; the centre. Column x-step scales with BALL_WIDTH_PX (6, was 4) so the rack
-;; keeps the same relative spacing at the new ball width -- proven
-;; non-overlapping at the old size, and scaling the gap with the ball keeps
-;; it that way. BALL_HEIGHT_PX is unchanged (6) so the row y-step is too.
+;; the centre. Column x-step scales with BALL_WIDTH_PX (6) and row y-step
+;; with BALL_HEIGHT_PX (8, was 6 -- V.019's ball_blit optimization affords
+;; a taller ball again) so the rack keeps the same relative spacing at the
+;; new ball size -- proven non-overlapping at the old size, and scaling the
+;; gaps with the ball keeps it that way.
 ball_cue: DefineBall 0, 120, TABLE_Y_PX+63, 15
 ball_8:   DefineBall 8,  28, TABLE_Y_PX+63, 1
-ball_6:   DefineBall 6,  34, TABLE_Y_PX+57, 11
-ball_7:   DefineBall 7,  34, TABLE_Y_PX+69, 13
-ball_4:   DefineBall 4,  40, TABLE_Y_PX+51, 3
+ball_6:   DefineBall 6,  34, TABLE_Y_PX+55, 11
+ball_7:   DefineBall 7,  34, TABLE_Y_PX+71, 13
+ball_4:   DefineBall 4,  40, TABLE_Y_PX+47, 3
 ball_9:   DefineBall 9,  40, TABLE_Y_PX+63, 5
-ball_5:   DefineBall 5,  40, TABLE_Y_PX+75, 6
-ball_2:   DefineBall 2,  46, TABLE_Y_PX+57, 2
-ball_3:   DefineBall 3,  46, TABLE_Y_PX+69, 4
+ball_5:   DefineBall 5,  40, TABLE_Y_PX+79, 6
+ball_2:   DefineBall 2,  46, TABLE_Y_PX+55, 2
+ball_3:   DefineBall 3,  46, TABLE_Y_PX+71, 4
 ball_1:   DefineBall 1,  52, TABLE_Y_PX+63, 8
 
 ball_templates:

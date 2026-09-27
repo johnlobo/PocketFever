@@ -13,7 +13,7 @@ make cleanall
 `CPCT_PATH` required. Load at `0x4000`.
 
 **Version bump + deploy + commit (do this unprompted after every significant change):**
-- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.018`).
+- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.019`).
 - Run `./code-server-compile.sh` — `make recode` and copy `PocketFever.dsk` to `../../www/gamez`. Always deploy before commit+push so the playable DSK is what gets tested.
 - `git commit` and `git push`. Do not wait to be asked.
 
@@ -25,7 +25,25 @@ Single buffer. Erase + draw must run right after `cpct_waitVSYNC_asm`, before th
 
 `sys_entity_erase_one`/`sys_entity_draw_one` (sys/entity.s) skip a ball entirely once it's settled (`SkipIfSettled`, sys/entity.h.s: no velocity AND `e_cflags` clear -- same test `gaim_all_still` uses). A settled ball's `e_old_x`/`e_old_y` already equal its current position, so erase(old)+draw(current) would be a no-op anyway; skipping it is pure win. V.015, visible lines at rest / all 10 moving: erase+draw 7 / 88, physics 13 / 108, collision 10 / 69, idle 241 / 6 (V.012: erase+draw ≥81 / ≥80, idle 172 / 21 -- moving-ball redraw cost is unchanged, since nothing to skip there). V.008: collision 133 / 136, idle 26 / 18.
 
-**The all-moving case has zero slack, and ball size sets the budget.** `SkipIfSettled` only helps once balls stop; while all 10 are moving (`perf_test.py`'s "chaos" scenario) every one still gets a full erase+draw every frame, and that cost scales directly with `BALL_WIDTH_BYTES*BALL_HEIGHT_PX`. Going from 4x6 to 6x8 (tried while sizing V.016's bigger balls) pushed "chaos" to 0.82 loops/frame (41 Hz) -- comfortably over the single-buffer budget (`perf_test.py`'s `BUDGET = 0.98`), because the drawn area per ball doubled (24px -> 48px). 6x7 barely cleared it (0.98 exactly, zero margin -- rejected as too fragile to changes elsewhere). Settled on 6x6 (1.00 in all three scenarios, same margin as V.015's 4x6): a bigger ball changes what fits, always re-run `perf_test.py`'s "chaos" case before shipping a size change, not just render/collision.
+**The all-moving case has zero slack, and ball size sets the budget.** `SkipIfSettled` only helps once balls stop; while all 10 are moving (`perf_test.py`'s "chaos" scenario) every one still gets a full erase+draw every frame, and that cost scales directly with the drawn area. Going from 4x6 to 6x8 (tried while sizing V.016's bigger balls) pushed "chaos" to 0.82 loops/frame (41 Hz) -- comfortably over the single-buffer budget (`perf_test.py`'s `BUDGET = 0.98`), because the drawn area per ball doubled (24px -> 48px). 6x7 barely cleared it (0.98 exactly, zero margin -- rejected as too fragile to changes elsewhere). V.016 settled for 6x6 (1.00 in all three scenarios) rather than fix the actual bottleneck.
+
+**V.019 fixed the bottleneck instead of avoiding it, and 6x8 (now with rounded corners) fits with real margin.** Four changes to `sys/entity.s`'s erase/draw path, in order, each independently measured:
+1. **Per-ball pattern cache** (`e_pat_full`/`e_pat_l`/`e_pat_r`, `sys_entity_create`): `sys_render_pen_solid_byte` (-> `cpct_pens2pixelPatternPairM0_asm`) used to run twice per ball per FRAME (once for the felt, once for the ball's own colour) even though a ball's colour never changes after creation. Computed once at creation instead. Alone: chaos 0.82 -> 0.98 (exactly at budget, no margin -- same fragility 6x7 had, not shipped alone).
+2. **Cached screen pointer** (`e_old_ptr`) **+ a build-time row-start table** (`tools/gen_row_table.py` -> `felt_row_addr`, `src/sys/row_table.s`): erase used to recompute its address via `cpct_getScreenPtr_asm` every frame even though draw had *just* computed the exact same address a few instructions earlier; draw now looks up its row's start address in a table (one word read) instead of `cpct_getScreenPtr_asm`'s runtime divide/shift chain, and stores the result for erase to reuse directly. Alone (on top of 1): chaos 0.98 -> 1.00.
+3. **Generated, unrolled, shaped blit** (`tools/gen_ball_blit.py` -> `src/sys/ball_blit.s`): replaces `cpct_drawSolidBox_asm`'s generic byte-counting loop with one straight-line `ld (hl),reg` per byte of the ball's shape (a plain ASCII-art picture, one char per mode-0 pixel), classified at build time into full-ball/left-felt-right-ball/right-felt-left-ball/all-felt bytes. This is also what gave the ball rounded corners (see below) instead of just being faster.
+4. **Direct `IX`-stepping loop** (`sys_entity_erase_all`/`draw_all`): replaced `sys_array_execute_each`'s generic per-element `jp (hl)` + manual return-address push with a plain `call`/`ret` loop, since the element size and routine are both known at build time here.
+
+`PROFILE_RASTER` lines at 6x8, before (V.016's approach) / after (V.019), rest / all-10-moving:
+| phase | rest before | rest after | chaos before | chaos after |
+|---|---|---|---|---|
+| erase+draw | 9 | 5 | 117 | 58 |
+| physics | 13 | 12 | 105 | 105 |
+| collision | 9 | 10 | 49 | 56 |
+| idle | 240 | 244 | 0 (over budget) | 52 |
+
+`perf_test.py` chaos ratio at 6x8: 0.82 (before) -> 1.00 (after, steps 1-4 combined). The 8-variant-by-`(y&7)` specialisation the design allowed for (skip the runtime character-row-crossing check by generating one routine per known starting phase) was NOT needed -- steps 1-4 alone reached full margin.
+
+**Ball corners are opaque, not masked, and that's only correct because the felt is a flat colour.** `sys_ball_blit_draw`'s "l"/"r" byte patterns mix felt and ball ink within one byte for the shape's rounded corners; `sys_ball_blit_erase` restores the corner byte's ENTIRE bounding box to plain felt regardless of the shape (correct because the corner pixel was always felt before the ball ever drew there -- see the erase routine's own comment). If the felt ever stops being one solid colour under a ball (pockets, a textured cloth, a dropshadow), this stops being safe and every "l"/"r" erase would need to restore whatever was ACTUALLY there before, not a flat fill.
 
 ## Friction
 
@@ -71,7 +89,7 @@ Single buffer. Erase + draw must run right after `cpct_waitVSYNC_asm`, before th
 ## Frozen layout
 
 - Felt 160×132 (looks 2:1 on CRT 4:3), bottom-aligned (Y=68). HUD 68 px at Y=0.
-- Balls 6×6 (V.016, was 4×6 -- see "Main loop timing" for why bigger didn't fit). `src/config.h.s`.
+- Balls 6×8 with rounded corners (V.019, was 6×6 flat-square -- see "Main loop timing" for the optimization that made 6×8 fit; the shape itself is `tools/gen_ball_blit.py`'s `SHAPE` constant, not a config number). `src/config.h.s`.
 - Legal ball top-left: x `0..TABLE_X_MAX`, y `TABLE_Y_PX..TABLE_Y_MAX` (config.h.s). Anything that moves a ball (physics, collision separation) must stay inside it.
 
 ## Architecture
@@ -84,7 +102,7 @@ Copied from DeckTower (trimmed): `system`, `input`, `text`, `messages`, `array`.
 
 ```bash
 make && python3 tests/collision_test.py   # ~40 s, boots the real DSK in AmSpiriT-Lite
-python3 tests/render_test.py              # ~25 s, balls visible in real screenshots
+python3 tests/render_test.py              # ~25 s, balls visible in real screenshots, exact shape (rounded corners) at even/odd/character-row-crossing Y
 python3 tests/perf_test.py                # ~30 s, main loop at 50 Hz (rest, break, all moving)
 python3 tests/shot_test.py                # ~90 s, hold SPACE 3/27/60 frames: power 8/12/16, balls settle cleanly
 python3 tests/physics_test.py             # ~90 s, friction along the direction, bit-exact with tools/friction_model.py (samples ~22 directions spread across the table, not every 3rd -- that was fine at 64 directions but ~4x too many real-hardware cases once DIRECTIONS grew to 256)

@@ -23,7 +23,10 @@ import zlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 EMU = ROOT.parent / "tools" / "amspirit-lite" / "run.sh"
 API = "http://127.0.0.1:6128"
-ENTITY_SIZE = 15          # sys/entity.h.s: cmps,x(2),y(2),vx(2),vy(2),old_x,old_y,id,color,cflags,facc
+ENTITY_SIZE = 20          # sys/entity.h.s: cmps,x(2),y(2),vx(2),vy(2),old_x,old_y,id,color,cflags,facc,
+                          # pat_full,pat_l,pat_r,old_ptr(2) -- the last 4 fields are the ball-blit
+                          # cache (tools/gen_ball_blit.py); e_cflags stays at the fixed offset +13
+                          # every test pokes directly, since the new fields were appended at the end
 BALL_COUNT = 10
 
 

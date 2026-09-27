@@ -78,8 +78,16 @@
 .globl sys_array_execute_each_ix_matching
 .globl sys_array_execute_each_iy_matching
 
+;; sys/row_table.s
+.globl felt_row_addr
+
+;; sys/ball_blit.s
+.globl sys_ball_blit_draw
+.globl sys_ball_blit_erase
+
 ;; sys/entity.s
 .globl entities
+.globl FELT_PATTERN
 .globl sys_entity_init
 .globl sys_entity_create
 .globl sys_entity_draw_all
