@@ -56,7 +56,7 @@ print("DONE")
 
 
 def friction():
-    text = (ROOT / "src" / "sys" / "physics.s").read_text()
+    text = (ROOT / "src" / "tuning.h.s").read_text()
     return int(re.search(r"^PHYS_FRICTION\s*=\s*(\d+)", text, re.M).group(1))
 
 

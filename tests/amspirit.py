@@ -31,11 +31,14 @@ BALL_COUNT = 10
 
 
 def config_value(name):
-    text = (ROOT / "src" / "config.h.s").read_text()
-    match = re.search(rf"^\s*{name}\s*=\s*(\d+)", text, re.M)
-    if not match:
-        sys.exit(f"{name} missing from src/config.h.s")
-    return int(match.group(1))
+    # Gameplay-feel knobs live in tuning.h.s, layout/rendering in config.h.s
+    # (see tuning.h.s's own header comment) -- check both rather than pick.
+    for filename in ("config.h.s", "tuning.h.s"):
+        text = (ROOT / "src" / filename).read_text()
+        match = re.search(rf"^\s*{name}\s*=\s*(\d+)", text, re.M)
+        if match:
+            return int(match.group(1))
+    sys.exit(f"{name} missing from src/config.h.s and src/tuning.h.s")
 
 
 def symbols(*names):

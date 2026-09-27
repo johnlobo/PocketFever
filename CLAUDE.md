@@ -13,7 +13,7 @@ make cleanall
 `CPCT_PATH` required. Load at `0x4000`.
 
 **Version bump + deploy + commit (do this unprompted after every significant change):**
-- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.019`).
+- Bump `_game_version_string` in `src/main.s` (currently ` POCKETFEVER V.020`).
 - Run `./code-server-compile.sh` — `make recode` and copy `PocketFever.dsk` to `../../www/gamez`. Always deploy before commit+push so the playable DSK is what gets tested.
 - `git commit` and `git push`. Do not wait to be asked.
 
@@ -83,8 +83,9 @@ Single buffer. Erase + draw must run right after `cpct_waitVSYNC_asm`, before th
 
 - Every change of a ball's position sets `CF_PENDING` in `e_cflags`: physics for moving balls, each separation nudge that moves a ball, the rack at boot, and anything else that places a ball (tests poke it too). Forget it and that ball's overlaps are never seen.
 - Each collision pass first snapshots PENDING into `CF_ACTIVE`, then checks a pair (lower slot = collider, later slots only) only if one ball is ACTIVE. No ACTIVE ball: the pass ends after the snapshot.
-- Hits swap velocities and nudge both balls 1 px apart, clamped at the cushions, as in V.008. A nudged ball is PENDING, so leftover overlap keeps being resolved one pixel per frame. Not bit-identical to V.008: an overlap a nudge creates mid-pass between two non-ACTIVE balls is handled next frame, so a break can end a pixel differently (never overlapping).
+- Hits swap velocities (still exact for an equal-mass elastic collision) and nudge both balls 1 px apart, clamped at the cushions, as in V.008. A nudged ball is PENDING, so leftover overlap keeps being resolved one pixel per frame. Not bit-identical to V.008: an overlap a nudge creates mid-pass between two non-ACTIVE balls is handled next frame, so a break can end a pixel differently (never overlapping).
 - Tried and rejected (V.009 review): skipping still balls as colliders and full one-shot separation. Both left overlaps at rest (mid-pass hits, pushes into a third ball) or ping-ponged in a squeeze. The scenarios live in `tests/collision_test.py`.
+- **Arcade punch (V.020)**: right after the swap, `sys_collision_amplify` boosts all four post-swap velocity components (both balls' vx/vy) by `1/2^RESTITUTION_SHIFT` (`tuning.h.s`), then `sys_collision_clamp_speed` caps the result to `+-MAX_BALL_SPEED_8_8` -- a hard ceiling one pixel under `BALL_HEIGHT_PX`, the same tunnelling-safety margin `SHOT_POWER`'s own comment already relied on, so repeated hits in one break can never grow a ball's speed past the point where it could skip through another ball in one frame. `RESTITUTION_SHIFT=3` (+12.5%/hit) is a first guess, not a measured value -- David asked for both this and a higher `SHOT_POWER_SPAN` (10, was 8) at the same time specifically to try together and retune by feel; change it in `tuning.h.s` and rerun `tests/collision_test.py` (its "moving pairs"/"head-on" checks use loose distance thresholds, not exact post-collision positions, so they tolerate retuning).
 
 ## Frozen layout
 
@@ -95,6 +96,8 @@ Single buffer. Erase + draw must run right after `cpct_waitVSYNC_asm`, before th
 ## Architecture
 
 Follows DeckTower/model01: `src/sys/` reusable, `src/game/` game-specific. `sys` must not reference `game`.
+
+**`src/config.h.s` vs `src/tuning.h.s` (V.020)**: `config.h.s` holds screen/entity/rendering layout (table/HUD geometry, ball size, HUD field offsets) -- values an artist/layout change touches. `tuning.h.s` holds gameplay-FEEL knobs (`PHYS_FRICTION`, `SHOT_POWER_MIN/SPAN/CHARGE_STEP`, `RESTITUTION_SHIFT`, `MAX_BALL_SPEED_8_8`, `AIM_TURN_S0..S2/H1/H2`, `AIM_STEP_MULT/AIM_DASH_COUNT`) -- values worth iterating on for how the game plays, each with a comment naming its Python reference model and/or test. `globals.inc` includes both (`tuning.h.s` right after `config.h.s`); every other file gets both transitively via its own existing `globals.inc` include. `tuning.h.s` itself `.include`s `config.h.s` directly (not `globals.inc`, which would be circular, since `globals.inc` includes `tuning.h.s`) because `MAX_BALL_SPEED_8_8` derives from `BALL_HEIGHT_PX` and the Makefile assembles every `.h.s` standalone as well as via inclusion (`sys/entity.h.s` uses the same self-sufficient-include pattern for the same reason). Python helpers that read a tunable value by name (`tests/amspirit.py`'s `config_value`, `tools/aim_model.py`'s `config`) check both files rather than picking one.
 
 Copied from DeckTower (trimmed): `system`, `input`, `text`, `messages`, `array`. Also `render` and `util` because text/messages need them. `sys/entity` is PocketFever's ball pool (10 slots). `game/table` paints the felt and seeds the 9-ball rack.
 

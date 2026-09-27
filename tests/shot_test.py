@@ -40,7 +40,7 @@ from amspirit import ROOT, BALL_COUNT, ENTITY_SIZE, boot, config_value, get, pos
 
 
 def phys_friction():
-    text = (ROOT / "src" / "sys" / "physics.s").read_text()
+    text = (ROOT / "src" / "tuning.h.s").read_text()
     return int(re.search(r"^PHYS_FRICTION\s*=\s*(\d+)", text, re.M).group(1))
 
 # (hold frames, aim angle in degrees): covers a short/long/mid charge and

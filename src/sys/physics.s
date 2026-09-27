@@ -8,9 +8,10 @@
 .include "globals.inc"
 .include "sys/physics.h.s"
 
-;; Linear friction along the direction of travel, in 1/256 px per frame per
-;; frame. Tune with tools/friction_model.py (it models this exact code).
-PHYS_FRICTION = 4
+;; PHYS_FRICTION (linear friction along the direction of travel, in 1/256 px
+;; per frame per frame) now lives in tuning.h.s (included via globals.inc,
+;; already .include'd above) -- a gameplay-feel knob, not engine wiring.
+;; Tune with tools/friction_model.py (it models this exact code).
 ;; spf_reduce loops PHYS_FRICTION times through B: 0 would loop 256 times and
 ;; never stop a ball, and more than 255 does not fit in B.
 .ifeq PHYS_FRICTION

@@ -34,8 +34,14 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def config(name):
-    text = (ROOT / "src" / "config.h.s").read_text()
-    return int(re.search(rf"^\s*{name}\s*=\s*(\d+)", text, re.M).group(1))
+    # AIM_STEP_MULT/AIM_DASH_COUNT live in tuning.h.s (gameplay feel);
+    # AIM_DASH_PX/AIM_X_*/AIM_Y_* stay in config.h.s (layout) -- check both.
+    for filename in ("config.h.s", "tuning.h.s"):
+        text = (ROOT / "src" / filename).read_text()
+        match = re.search(rf"^\s*{name}\s*=\s*(\d+)", text, re.M)
+        if match:
+            return int(match.group(1))
+    raise KeyError(f"{name} missing from src/config.h.s and src/tuning.h.s")
 
 
 def directions():

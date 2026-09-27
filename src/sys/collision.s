@@ -246,6 +246,29 @@ sys_collision_balls_bounce:
     ld e_vy(iy), l
     ld e_vy+1(iy), h
 
+    ;; Arcade punch: boost all four post-swap components by
+    ;; 1/2^RESTITUTION_SHIFT (tuning.h.s), clamped to MAX_BALL_SPEED_8_8.
+    ld l, e_vx(ix)
+    ld h, e_vx+1(ix)
+    call sys_collision_amplify
+    ld e_vx(ix), l
+    ld e_vx+1(ix), h
+    ld l, e_vy(ix)
+    ld h, e_vy+1(ix)
+    call sys_collision_amplify
+    ld e_vy(ix), l
+    ld e_vy+1(ix), h
+    ld l, e_vx(iy)
+    ld h, e_vx+1(iy)
+    call sys_collision_amplify
+    ld e_vx(iy), l
+    ld e_vx+1(iy), h
+    ld l, e_vy(iy)
+    ld h, e_vy+1(iy)
+    call sys_collision_amplify
+    ld e_vy(iy), l
+    ld e_vy+1(iy), h
+
     ;; Overlap per axis = size - |distance|, whichever side IY is on.
     ld a, e_x+1(ix)
     sub e_x+1(iy)
@@ -286,4 +309,63 @@ scbb_sep_x:
 scbb_ix_left:
     NudgeDec e_x+1(ix), e_cflags(ix), 0
     NudgeInc e_x+1(iy), e_cflags(iy), TABLE_X_MAX
+    ret
+
+;;-----------------------------------------------------------------
+;;
+;; sys_collision_amplify
+;;
+;;  Boosts a signed 8.8 velocity component by 1/2^RESTITUTION_SHIFT
+;;  (tuning.h.s) and clamps the result to +-MAX_BALL_SPEED_8_8, so a chain
+;;  of hits in one break can never grow past the tunnelling-safety ceiling
+;;  SHOT_POWER (tuning.h.s) is itself already kept under.
+;;  Input:  HL = velocity component
+;;  Output: HL = amplified, clamped value
+;;  Modified: AF, B, DE
+;;
+sys_collision_amplify:
+    push hl
+    ld b, #RESTITUTION_SHIFT
+    ld a, b
+    or a
+    jr z, sca_shift_done
+sca_shift_loop:
+    sra h
+    rr l
+    djnz sca_shift_loop
+sca_shift_done:
+    pop de
+    add hl, de
+    ;; fall through to the clamp
+
+;;-----------------------------------------------------------------
+;;
+;; sys_collision_clamp_speed
+;;
+;;  Input:  HL = signed 8.8 value
+;;  Output: HL = HL clamped to [-MAX_BALL_SPEED_8_8, +MAX_BALL_SPEED_8_8]
+;;  Modified: AF, DE
+;;
+sys_collision_clamp_speed:
+    bit 7, h
+    jr nz, sccs_negative
+    ld de, #MAX_BALL_SPEED_8_8
+    or a
+    sbc hl, de
+    jr nc, sccs_pos_over
+    add hl, de
+    ret
+sccs_pos_over:
+    ld hl, #MAX_BALL_SPEED_8_8
+    ret
+sccs_negative:
+    ld de, #MAX_BALL_SPEED_8_8
+    add hl, de
+    bit 7, h
+    jr z, sccs_neg_under
+    ld hl, #(-MAX_BALL_SPEED_8_8) & 0xFFFF
+    ret
+sccs_neg_under:
+    or a
+    sbc hl, de
     ret

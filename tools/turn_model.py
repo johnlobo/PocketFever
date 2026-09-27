@@ -14,7 +14,7 @@ checked low members first -- easy to reproduce with a handful of Z80
 compares, no division, and (since DIRECTIONS=256 is exactly one byte's
 range) `add a, step` / `sub a, step` wrap the index automatically, no
 masking needed regardless of step size. Tune STAGES here, verify with
-`python3 tools/turn_model.py`, then copy the numbers into src/config.h.s.
+`python3 tools/turn_model.py`, then copy the numbers into src/tuning.h.s.
 
 Usage: python3 tools/turn_model.py
 """

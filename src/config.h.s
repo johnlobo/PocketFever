@@ -34,13 +34,9 @@ FONT_HEIGHT = 9
 PROFILE_RASTER = 0
 
 ;; game/shot.s test shot: hold SPACE to charge, release to fire in a random
-;; direction. Power is a multiple of the 0.25 line/frame direction step:
-;; MIN on a tap, +1 every SHOT_CHARGE_STEP frames held, capped at MIN+SPAN,
-;; i.e. 2..4 raster lines per frame, full on the 49th held frame (~1 s). The top end
-;; stays under BALL_HEIGHT_PX so no ball can jump through another in a frame.
-SHOT_POWER_MIN   = 8
-SHOT_POWER_SPAN  = 8
-SHOT_CHARGE_STEP = 6
+;; direction. SHOT_POWER_MIN/SPAN/CHARGE_STEP now live in tuning.h.s (a
+;; gameplay-feel knob, not layout) -- MIN on a tap, +1 every CHARGE_STEP
+;; frames held, capped at MIN+SPAN raster lines per frame.
 
 ;; HUD charge bar: one 2-byte segment per power level, SHOT_POWER_SPAN+1 max.
 SHOT_BAR_X_BYTES = 2
@@ -57,12 +53,8 @@ SHOT_BAR_PEN     = 15
 ;; the shot will actually go including rebounds. Crossing over a ball is
 ;; still safe, since sys/entity.s skips erase/draw for any settled ball, and
 ;; the line is only ever shown while every ball is settled (gaim_all_still).
-;; AIM_STEP_MULT/AIM_DASH_COUNT set the dash spacing and total reach (their
-;; product is the arc length in raw 8.8 direction-vector units, +50% over
-;; V.015's 40*5=200); tools/aim_model.py sizes them and checks the running
-;; accumulator never overflows 16 bits for shot_table.s's widest direction.
-AIM_STEP_MULT    = 50
-AIM_DASH_COUNT   = 6
+;; AIM_STEP_MULT/AIM_DASH_COUNT (dash spacing and total reach) moved to
+;; tuning.h.s -- a gameplay-feel knob, not layout.
 AIM_DASH_PX      = 2
 AIM_PEN          = 15
 ;; Legal range of the cue ball's CENTER on each axis -- same clearance from
@@ -81,24 +73,7 @@ AIM_Y_LO     = TABLE_Y_PX+BALL_HEIGHT_PX/2
 AIM_Y_HI     = TABLE_Y_PX+TABLE_HEIGHT_PX-BALL_HEIGHT_PX/2
 AIM_Y_SPAN   = AIM_Y_HI-AIM_Y_LO
 AIM_Y_PERIOD = 2*AIM_Y_SPAN
-;; Index-units advanced per held frame while a cursor key is held, staged:
-;; starts at 1 (the finest of the 256 directions, so a tap is always exactly
-;; that precise) and grows the longer the key stays held, so a full 256-step
-;; revolution doesn't take forever at that resolution. V.017 replaced the
-;; old THROTTLE ramp (frames PER step, step always 1) with this STEP ramp (a
-;; step every held frame, size grows) -- DIRECTIONS moved from 64 to 256 and
-;; a flat step of 1 the whole way would have quadrupled full-turn time.
-;; AIM_TURN_Hn = frames continuously held before that stage's step
-;; (AIM_TURN_Sn) applies; ascending, last one is the ceiling -- 4, reached at
-;; AIM_TURN_H2, is deliberately the same top angular speed (5.625 deg/frame)
-;; the old ramp topped out at, so a long hold spins exactly as fast as
-;; before; only the finer stages below are new. Sized and verified with
-;; tools/turn_model.py; change there first.
-AIM_TURN_S0 = 1               ;; 0-19 held frames: 1 index/frame  (1.406 deg/frame)
-AIM_TURN_H1 = 20
-AIM_TURN_S1 = 2                ;; 20-44:           2 index/frame  (2.812 deg/frame)
-AIM_TURN_H2 = 45
-AIM_TURN_S2 = 4                ;; 45+ (ceiling):   4 index/frame  (5.625 deg/frame)
+;; AIM_TURN_S0..S2/H1/H2 (the turn ramp) moved to tuning.h.s.
 ;; Index into shot_directions (angle = index*360/256, DIRECTIONS=256,
 ;; tools/turn_model.py). 128 = 180 deg = left, toward the rack, since the
 ;; cue starts at the right (game/table.s).

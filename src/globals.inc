@@ -1,5 +1,6 @@
 ;; Central declaration registry. One entry per external symbol.
 .include "config.h.s"
+.include "tuning.h.s"
 
 ;; CPCtelera
 .globl cpct_disableFirmware_asm
